@@ -1,4 +1,4 @@
-import { overlaps } from './period.js';
+import { overlaps } from './booking-period.js';
 
 describe('overlaps', () => {
   const booked = { start: 10, end: 20 };

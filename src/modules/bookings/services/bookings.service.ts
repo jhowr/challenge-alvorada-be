@@ -12,7 +12,11 @@ import {
   BOOKINGS_REPOSITORY,
   type BookingsRepository,
 } from '../repositories/bookings.repository.js';
-import { parseBookingFilter, parseNewBooking } from './booking-validator.js';
+import {
+  isPossibleBookingId,
+  parseBookingFilter,
+  parseNewBooking,
+} from './booking-validator.js';
 
 @Injectable()
 export class BookingsService {
@@ -63,6 +67,7 @@ export class BookingsService {
   ): Promise<
     Result<{ outcome: CancelOutcome; booking: Booking }, BookingNotFoundError>
   > {
+    if (!isPossibleBookingId(id)) return err({ code: 'booking_not_found', id });
     const cancelled = await this.bookings.cancelIfActive(id);
     if (cancelled) return ok({ outcome: 'cancelled', booking: cancelled });
 
@@ -72,6 +77,8 @@ export class BookingsService {
   }
 
   async findById(id: string): Promise<Result<Booking, BookingNotFoundError>> {
+    // A malformed id (e.g. with NUL) cannot exist, and Postgres would reject it.
+    if (!isPossibleBookingId(id)) return err({ code: 'booking_not_found', id });
     const booking = await this.bookings.findById(id);
     return booking ? ok(booking) : err({ code: 'booking_not_found', id });
   }

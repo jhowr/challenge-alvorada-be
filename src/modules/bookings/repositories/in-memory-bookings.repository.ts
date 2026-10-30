@@ -6,7 +6,7 @@ import type {
   NewBooking,
   Period,
 } from '../booking.types.js';
-import { overlaps } from '../services/period.js';
+import { overlaps } from '../booking-period.js';
 import type {
   BookingsRepository,
   InsertBookingError,

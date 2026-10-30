@@ -1,4 +1,4 @@
-import type { Period } from '../booking.types.js';
+import type { Period } from './booking.types.js';
 
 /**
  * Two half-open periods `[start, end)` overlap when each one starts before the
