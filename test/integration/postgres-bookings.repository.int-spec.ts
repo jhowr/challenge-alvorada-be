@@ -104,6 +104,39 @@ describe('Postgres — guarantees beyond the application', () => {
     });
   });
 
+  it('queues inserts on the same resource behind its row lock', async () => {
+    // Without the per-resource lock every functional test still passes (the
+    // constraint keeps the data right), but contention turns into deadlocks
+    // and 500s. This pins the serialization deterministically.
+    const repository = new PostgresBookingsRepository(db.pool);
+    const holder = await db.pool.connect();
+    try {
+      await holder.query('BEGIN');
+      await holder.query(
+        "SELECT 1 FROM resources WHERE id = 'ROOM-A' FOR NO KEY UPDATE",
+      );
+
+      let settled = false;
+      const blocked = repository
+        .insert({ id: 'A', resourceId: 'ROOM-A', start: 0, end: 10 })
+        .finally(() => (settled = true));
+      const otherResource = await repository.insert({
+        id: 'B',
+        resourceId: 'ROOM-B',
+        start: 0,
+        end: 10,
+      });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+
+      expect(otherResource.ok).toBe(true);
+      expect(settled).toBe(false);
+      await holder.query('ROLLBACK');
+      expect((await blocked).ok).toBe(true);
+    } finally {
+      holder.release();
+    }
+  });
+
   it('rejects an empty period and an unknown resource at the schema level', async () => {
     await expect(
       db.pool.query(
