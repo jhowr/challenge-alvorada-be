@@ -24,7 +24,9 @@
     "test:all": "pnpm test && pnpm test:e2e && pnpm test:pg",
     "typecheck": "tsc --noEmit",
     "db:migrate": "tsx scripts/migrate.ts",
-    "demo": "tsx scripts/demo.ts"
+    "demo": "nest build && tsx scripts/demo.ts",
+    "db:up": "docker compose up -d --wait",
+    "db:reset": "docker compose down -v && docker compose up -d --wait"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",
