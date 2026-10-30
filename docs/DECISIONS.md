@@ -15,6 +15,13 @@
 
 O mesmo experimento mostrou que o contrato do repositório Postgres também depende do constraint: sem ele, 4 testes falham, inclusive o `INSERT` direto no SQL que ignora a aplicação.
 
+**Desdobramento: deadlock sob contenção.** Ao rodar a suíte num clone limpo, o teste falhou uma vez em cerca de seis com `error: deadlock detected` (`40P01`). Com inserts sobrepostos simultâneos, a checagem do `EXCLUDE` faz cada transação esperar pela linha ainda não commitada da outra. Quando isso fecha um ciclo, o Postgres aborta uma delas. Sem tratamento, isso vira um **500** em produção exatamente no cenário que o constraint protege.
+
+A correção foi repetir o `insert` em caso de `40P01`, até 5 tentativas. É seguro porque o insert é um único comando atômico. Na nova tentativa a vencedora já está commitada, então o resultado vira um `conflict` normal. Para verificar:
+- instrumentei temporariamente o caminho de retry: **29 retries em 8 execuções**, todas passando;
+- rodei o teste 15 vezes seguidas: 15 de 15 passaram;
+- como o deadlock depende de timing, [postgres-bookings.repository.spec.ts](../src/modules/bookings/repositories/postgres-bookings.repository.spec.ts) fixa a política de retry de forma determinística, com um pool falso.
+
 ## 2. Ordem de ids: `COLLATE "C"` e imagem Debian nos testes
 
 **O que eu queria conferir.** O enunciado pede os conflitos "em ordem crescente de identificador". Os ids são texto, e eu queria a mesma ordem em memória e no Postgres. Em JS, `a < b` compara code units; no Postgres, `ORDER BY id` segue a collation do banco.

@@ -18,6 +18,9 @@ const COLUMNS = `id, resource_id AS "resourceId", lower(period) AS start,
 const PG_UNIQUE_VIOLATION = '23505';
 const PG_FOREIGN_KEY_VIOLATION = '23503';
 const PG_EXCLUSION_VIOLATION = '23P01';
+const PG_DEADLOCK_DETECTED = '40P01';
+
+const MAX_INSERT_ATTEMPTS = 5;
 
 const violates = (error: unknown, code: string): boolean =>
   error instanceof DatabaseError && error.code === code;
@@ -69,6 +72,28 @@ export class PostgresBookingsRepository implements BookingsRepository {
   }
 
   async insert(
+    booking: NewBooking,
+  ): Promise<Result<Booking, InsertBookingError>> {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await this.tryInsert(booking);
+      } catch (error) {
+        // Concurrent overlapping inserts wait on each other's uncommitted rows
+        // in the exclusion check and may deadlock; Postgres aborts one of them.
+        // The insert is a single atomic statement, so retrying is safe, and by
+        // then the winner has committed and the retry reports a plain conflict.
+        if (
+          attempt < MAX_INSERT_ATTEMPTS &&
+          violates(error, PG_DEADLOCK_DETECTED)
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
+  }
+
+  private async tryInsert(
     booking: NewBooking,
   ): Promise<Result<Booking, InsertBookingError>> {
     try {

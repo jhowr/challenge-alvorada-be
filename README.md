@@ -120,7 +120,7 @@ scripts/           demo e migrate
 
 ## Testes
 
-108 testes: 63 unitários (ao lado de cada service), 21 e2e e 24 de integração.
+110 testes: 65 unitários (ao lado de cada service), 21 e2e e 24 de integração.
 
 ### Três testes que ajudam a entender a solução
 
@@ -137,7 +137,7 @@ scripts/           demo e migrate
 
 O detalhamento, com como cada uma foi investigada, está em [docs/DECISIONS.md](docs/DECISIONS.md):
 
-1. **O teste de concorrência precisava de uma barreira.** A primeira versão passava mesmo sem o constraint, ou seja, não provava nada.
+1. **O teste de concorrência precisava de uma barreira.** A primeira versão passava mesmo sem o constraint, ou seja, não provava nada. Depois de corrigido, o teste revelou deadlocks (`40P01`) entre inserts simultâneos, que viraram retry no repositório.
 2. **Ordem de ids com `COLLATE "C"` e imagem Debian nos testes.** Na imagem Alpine, o teste de ordenação passaria mesmo sem o `COLLATE "C"`.
 
 ## Uso de IA
@@ -146,6 +146,7 @@ _Revisar e ajustar com a sua experiência._ A implementação foi feita em par c
 
 - **Testes por regra** escritos junto com o código, com o nome da regra do PRD.
 - **Testes de mutação manuais**: trocar `<` por `<=` no `overlaps`, remover o `EXCLUDE` e remover o `COLLATE "C"`, e conferir que os testes certos falham. Dois desses experimentos mostraram que testes que passavam não provavam o que diziam (ver Decisões).
+- **Rodar a suíte num clone limpo**, como quem avalia faria. Foi assim que apareceu o deadlock intermitente sob contenção.
 - **Demo contra o servidor real** em memória e no Postgres, conferindo as linhas direto no banco com `psql`.
 
 ## Limites e pendências
