@@ -1,132 +1,157 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# Reservas sem conflito — Caso 02
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Solução do [Caso 02 — Reservas sem conflito](https://github.com/Alvorada-Dev/desafios-tecnicos/blob/main/casos/02-reservas-de-recursos.md) do desafio técnico da Alvorada.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+| | |
+|---|---|
+| **Caso** | 02 — Reservas sem conflito |
+| **Foco** | Back-end e modelagem de dados: API NestJS + PostgreSQL |
+| **Tempo dedicado** | _preencher_ |
+| **Vídeo** | _link do vídeo_ |
 
-## Description
+Uma API que diz se um recurso (sala ou equipamento) pode ser reservado em um período, cria e cancela reservas e permite consultá-las. A regra central, de que **duas reservas ativas do mesmo recurso nunca se sobrepõem**, é garantida em duas camadas:
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+1. **No service**, que valida a entrada e explica cada recusa (qual campo está inválido, quais reservas conflitam).
+2. **No PostgreSQL**, com um `EXCLUDE USING gist` sobre `int4range`, que mantém a regra mesmo com requisições concorrentes. O desafio dispensa concorrência, mas um teste prova que ela está coberta.
 
-## Project setup
+## Como rodar
+
+Pré-requisitos: **Node 22+**, **pnpm 10+** e, só para o modo Postgres, **Docker**.
 
 ```bash
-$ pnpm install
+pnpm install
+
+# Testes unitários e e2e (não precisam de Docker)
+pnpm test          # regras de negócio (services, validator, período, ordenação)
+pnpm test:e2e      # API HTTP com repositórios em memória
+
+# Testes de integração com Postgres (sobe um container via Testcontainers)
+pnpm test:pg
+
+pnpm test:all      # os três acima
 ```
 
-## Compile and run the project
+### Demo reproduzível
 
 ```bash
-# development
-$ pnpm run start
-
-# watch mode
-$ pnpm run start:dev
-
-# production mode
-$ pnpm run start:prod
+pnpm demo                         # compila, sobe a API em memória numa porta livre e roda o cenário
 ```
 
-## Run tests
+A demo usa um cenário diferente do enunciado (uma sala e um projetor num dia de trabalho) e imprime, a cada passo, o resultado **esperado** e o **obtido**. Ela termina com código ≠ 0 se algum passo divergir.
+
+```
+3. ROOM-A: "planning" for [930, 1030) overlaps retro only
+   POST /bookings {"id":"planning","resourceId":"ROOM-A","start":930,"end":1030}
+   expected: 409 ["conflict",["retro"]]
+   actual:   409 ["conflict",["retro"]]  ✔
+...
+14/14 steps matched the expectation.
+```
+
+Para rodar o mesmo cenário contra o Postgres:
 
 ```bash
-# unit tests
-$ pnpm run test
-
-# e2e tests
-$ pnpm run test:e2e
-
-# test coverage
-$ pnpm run test:cov
+pnpm db:reset                     # docker compose com banco limpo (porta 54329)
+DB_DRIVER=postgres pnpm demo
 ```
 
-## Deployment
-
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
-
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### Subir a API
 
 ```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
+pnpm start:dev                            # em memória, http://localhost:3000
+pnpm db:up && DB_DRIVER=postgres pnpm start:dev   # Postgres; migrations e seed rodam no boot
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+O [requests.http](requests.http) tem as chamadas prontas para o REST Client (VS Code) ou o HTTP Client do JetBrains.
 
-## Observability
+Variáveis de ambiente (ver [.env.example](.env.example)): `PORT` (3000), `DB_DRIVER` (`memory` ou `postgres`) e `DATABASE_URL` (por padrão aponta para o banco do `docker-compose.yml`).
 
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
+## API
 
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
+| Método e rota | Sucesso | Erros |
+|---|---|---|
+| `GET /resources` | 200 lista de ids | — |
+| `GET /resources/:resourceId/availability?start=&end=` | 200 `{ available, conflicts }` | 400 `validation_error`, 404 `resource_not_found` |
+| `POST /bookings` `{ id, resourceId, start, end }` | 201 reserva criada | 400 `validation_error`, 404 `resource_not_found`, 409 `id_already_used`, 409 `conflict` |
+| `GET /bookings?status=&resourceId=` | 200 lista em ordem crescente de id | 400 `validation_error` |
+| `GET /bookings/:id` | 200 reserva | 404 `booking_not_found` |
+| `POST /bookings/:id/cancellation` | 200 `{ outcome: "cancelled" \| "already_cancelled", booking }` | 404 `booking_not_found` |
 
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
+Todo erro tem o formato `{ "code": "...", "message": "...", ...detalhes }`. O cancelamento é um `POST` em um sub-recurso, e não `DELETE`, porque a reserva continua existindo com status `cancelled`.
 
-To add it to this project, run this and approve the code it prints at [observe.nestjs.com/link](https://observe.nestjs.com/link) - signing up for free if you have no account:
+### Termos do enunciado no código
 
-```bash
-$ npx @nestjs/observe link
+O código está todo em inglês. A correspondência com o enunciado:
+
+| Enunciado | Código |
+|---|---|
+| reserva, recurso | `booking`, `resource` |
+| `inicio`, `fim` | `start`, `end` |
+| ativa, cancelada | `active`, `cancelled` |
+| `ja_cancelada` | `already_cancelled` |
+
+## Regras implementadas
+
+As regras do enunciado estão numeradas em [docs/PRD.md](docs/PRD.md) (BR1 a BR14), e os testes citam a regra no nome. Os pontos de interpretação:
+
+- **Período `[start, end)`** com inteiros de 32 bits. `start < end`; um período vazio ou invertido é inválido.
+- **Ordem de validação**: quando há mais de um problema, vence o primeiro desta ordem: dados inválidos, recurso inexistente, id em uso, conflito. A resposta de dados inválidos lista todos os campos com problema de uma vez.
+- **Ordem crescente de id** é a ordem de bytes (`"10" < "9" < "B" < "a"`), igual em memória e no Postgres (ver [docs/DECISIONS.md](docs/DECISIONS.md)).
+- **Uma tentativa recusada** não grava nada, então o id continua livre. **Uma reserva criada** guarda o id para sempre, mesmo cancelada.
+
+## Arquitetura
+
+```
+src/
+  modules/
+    resources/     controllers/ services/ repositories/   lista fixa de recursos
+    bookings/      controllers/ services/ repositories/   reservas e disponibilidade
+  shared/          Result<T, E>, ordenação de ids, filtro de erros HTTP, banco e migrations
+test/
+  e2e/             API HTTP (supertest, memória)
+  integration/     suíte de contrato dos repositórios (memória e Postgres) e concorrência
+scripts/           demo e migrate
 ```
 
-It installs `@nestjs/observe`, wires it into `AppModule` and `main.ts`, and writes the app key and secret into `.env`, which every `nest start` script (`start`, `start:dev`, `start:debug`) then loads. In production, set `OBSERVE_APP_KEY` and `OBSERVE_APP_SECRET` in the environment instead.
+- **Folder by feature**: cada feature é um módulo Nest com `controllers/`, `services/` e `repositories/`. O controller de disponibilidade fica em `bookings/`, mesmo respondendo em `/resources/...`, porque disponibilidade é uma pergunta sobre reservas. Assim só `bookings` depende de `resources`, nunca o contrário.
+- **Erros esperados são valores** (`Result<T, E>`), não exceções. O compilador obriga cada chamador a tratar cada caso, e os controllers só traduzem `code` em status HTTP.
+- **Repositório com duas implementações** (`InMemory*` e `Postgres*`), escolhidas por `DB_DRIVER`. A **mesma suíte de contrato** roda contra as duas, o que prova que a API se comporta igual com qualquer uma.
+- **SQL puro com `pg`, sem ORM**: `int4range` e `EXCLUDE` não têm bom suporte em Prisma ou TypeORM, e o schema é o coração da solução ([001_initial.sql](src/shared/database/migrations/001_initial.sql)).
 
-Or do it by hand:
+## Testes
 
-```bash
-$ pnpm install @nestjs/observe
-```
+108 testes: 63 unitários (ao lado de cada service), 21 e2e e 24 de integração.
 
-Then follow the [setup guide](https://docs.nestjs.com/observability/sdk) - it takes a single import and an app key.
+### Três testes que ajudam a entender a solução
 
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
+1. **Limite do período semiaberto**: [period.spec.ts](src/modules/bookings/services/period.spec.ts) e "BR3 — a booking may start exactly when another ends" em [bookings.service.spec.ts](src/modules/bookings/services/bookings.service.spec.ts).
+   `[10,20)` e `[20,30)` convivem; `[19,21)` conflita com as duas. **Pega** o erro de usar `<=` em vez de `<` na comparação. Ao trocar o operador, 8 testes falham, inclusive o exemplo do enunciado.
 
-## Resources
+2. **Interação entre cancelamento e identificador**: "BR6 — an id is never reused, even after cancellation" e "BR5 — an attempt rejected by … does not take the id".
+   Cancelar libera o **horário** mas não o **id**, e uma tentativa recusada não ocupa o id. **Pega** dois erros opostos: implementar o cancelamento como remoção da linha (o id voltaria a ficar livre) e gravar antes de validar (o id seria ocupado por uma tentativa recusada).
 
-Check out a few resources that may come in handy when working with NestJS:
+3. **Concorrência no Postgres**: "accepts exactly one of many concurrent overlapping bookings" em [postgres-bookings.repository.int-spec.ts](test/integration/postgres-bookings.repository.int-spec.ts).
+   Dez requisições sobrepostas, forçadas a passar todas pelas pré-checagens do service antes de qualquer insert. Exatamente uma é aceita e nove recebem `conflict`. **Pega** a corrida "checa e depois insere", que nenhum teste sequencial enxerga: sem o `EXCLUDE`, as dez são aceitas.
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+## Decisões
 
-## Support
+O detalhamento, com como cada uma foi investigada, está em [docs/DECISIONS.md](docs/DECISIONS.md):
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+1. **O teste de concorrência precisava de uma barreira.** A primeira versão passava mesmo sem o constraint, ou seja, não provava nada.
+2. **Ordem de ids com `COLLATE "C"` e imagem Debian nos testes.** Na imagem Alpine, o teste de ordenação passaria mesmo sem o `COLLATE "C"`.
 
-## Stay in touch
+## Uso de IA
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+_Revisar e ajustar com a sua experiência._ A implementação foi feita em par com o Claude Code: primeiro um PRD e um plano revisados por mim (estrutura por feature, nomes em inglês, testes unitários ao lado dos services), depois a execução fase a fase. A verificação não dependeu de confiar no código gerado:
 
-## License
+- **Testes por regra** escritos junto com o código, com o nome da regra do PRD.
+- **Testes de mutação manuais**: trocar `<` por `<=` no `overlaps`, remover o `EXCLUDE` e remover o `COLLATE "C"`, e conferir que os testes certos falham. Dois desses experimentos mostraram que testes que passavam não provavam o que diziam (ver Decisões).
+- **Demo contra o servidor real** em memória e no Postgres, conferindo as linhas direto no banco com `psql`.
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+## Limites e pendências
+
+- O tempo é um inteiro de 32 bits (`int4range`). Trocar para `int8range` é simples; para decimais seria `numrange`.
+- Recursos são uma lista fixa ([resources.seed.ts](src/modules/resources/resources.seed.ts)); não há cadastro.
+- Sem paginação na listagem, sem autenticação, sem recorrência (fora do escopo do enunciado).
+- No Postgres, se uma reserva concorrente for aceita e cancelada entre o insert recusado e a releitura dos conflitos, o erro `conflict` pode vir com a lista vazia. A garantia de não sobreposição não é afetada.
+- Uma tela em Next.js ficou de fora; o foco foi o back-end.
