@@ -9,6 +9,7 @@ import { migrate } from '../../src/shared/database/migrate.js';
 
 export interface TestDatabase {
   pool: Pool;
+  connectionUri: string;
   /** Deletes every booking, keeping the schema and the seeded resources. */
   reset(): Promise<void>;
   stop(): Promise<void>;
@@ -33,6 +34,7 @@ export async function startTestDatabase(): Promise<TestDatabase> {
 
   return {
     pool,
+    connectionUri: container.getConnectionUri(),
     reset: async () => {
       await pool.query('TRUNCATE bookings');
     },
