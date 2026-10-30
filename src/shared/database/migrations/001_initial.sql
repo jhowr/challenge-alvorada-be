@@ -26,5 +26,3 @@ CREATE TABLE bookings (
     EXCLUDE USING gist (resource_id WITH =, period WITH &&)
     WHERE (status = 'active')
 );
-
-CREATE INDEX bookings_status_idx ON bookings (status, id);

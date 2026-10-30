@@ -1,4 +1,4 @@
-import { DatabaseError, type Pool } from 'pg';
+import { DatabaseError, type Pool, type PoolClient } from 'pg';
 import { err, ok, type Result } from '../../../shared/result.js';
 import type {
   Booking,
@@ -16,11 +16,9 @@ const COLUMNS = `id, resource_id AS "resourceId", lower(period) AS start,
                  upper(period) AS "end", status`;
 
 const PG_UNIQUE_VIOLATION = '23505';
-const PG_FOREIGN_KEY_VIOLATION = '23503';
 const PG_EXCLUSION_VIOLATION = '23P01';
-const PG_DEADLOCK_DETECTED = '40P01';
 
-const MAX_INSERT_ATTEMPTS = 5;
+type Queryable = Pool | PoolClient;
 
 const violates = (error: unknown, code: string): boolean =>
   error instanceof DatabaseError && error.code === code;
@@ -59,9 +57,10 @@ export class PostgresBookingsRepository implements BookingsRepository {
   async findActiveConflicts(
     resourceId: string,
     period: Period,
+    db: Queryable = this.pool,
   ): Promise<Booking[]> {
     // Same predicate as the exclusion constraint, so its GiST index serves it.
-    const { rows } = await this.pool.query<Booking>(
+    const { rows } = await db.query<Booking>(
       `SELECT ${COLUMNS} FROM bookings
         WHERE resource_id = $1 AND status = 'active'
           AND period && int4range($2, $3, '[)')
@@ -71,45 +70,67 @@ export class PostgresBookingsRepository implements BookingsRepository {
     return rows;
   }
 
+  /**
+   * Inserts inside a transaction that first locks the resource row.
+   *
+   * Without the lock, concurrent overlapping inserts wait on each other's
+   * uncommitted rows in the exclusion check and deadlock (40P01); Postgres
+   * needs `deadlock_timeout` (1s) to notice each one, so throughput collapses
+   * under contention. Locking the resource turns that into a short queue per
+   * resource, and the conflict check inside the lock is exact. The exclusion
+   * constraint stays as the guarantee for any writer that skips this path.
+   */
   async insert(
     booking: NewBooking,
   ): Promise<Result<Booking, InsertBookingError>> {
-    for (let attempt = 1; ; attempt++) {
-      try {
-        return await this.tryInsert(booking);
-      } catch (error) {
-        // Concurrent overlapping inserts wait on each other's uncommitted rows
-        // in the exclusion check and may deadlock; Postgres aborts one of them.
-        // The insert is a single atomic statement, so retrying is safe, and by
-        // then the winner has committed and the retry reports a plain conflict.
-        if (
-          attempt < MAX_INSERT_ATTEMPTS &&
-          violates(error, PG_DEADLOCK_DETECTED)
-        ) {
-          continue;
-        }
-        throw error;
-      }
-    }
-  }
-
-  private async tryInsert(
-    booking: NewBooking,
-  ): Promise<Result<Booking, InsertBookingError>> {
+    const client = await this.pool.connect();
+    let broken: Error | undefined;
     try {
-      const { rows } = await this.pool.query<Booking>(
+      await client.query('BEGIN');
+      // NO KEY UPDATE blocks other writers of this resource but not the
+      // KEY SHARE lock that foreign key checks take.
+      const locked = await client.query(
+        'SELECT 1 FROM resources WHERE id = $1 FOR NO KEY UPDATE',
+        [booking.resourceId],
+      );
+      if (locked.rowCount === 0) {
+        await client.query('ROLLBACK');
+        return err({
+          code: 'resource_not_found',
+          resourceId: booking.resourceId,
+        });
+      }
+      const conflicts = await this.findActiveConflicts(
+        booking.resourceId,
+        booking,
+        client,
+      );
+      if (conflicts.length > 0) {
+        await client.query('ROLLBACK');
+        return err({
+          code: 'conflict',
+          conflictingIds: conflicts.map((conflict) => conflict.id),
+        });
+      }
+      const { rows } = await client.query<Booking>(
         `INSERT INTO bookings (id, resource_id, period)
          VALUES ($1, $2, int4range($3, $4, '[)'))
          RETURNING ${COLUMNS}`,
         [booking.id, booking.resourceId, booking.start, booking.end],
       );
+      await client.query('COMMIT');
       return ok(rows[0]!);
     } catch (error) {
-      // Only reachable when a concurrent request wins the race after the
-      // service's pre-checks; the constraints are the source of truth.
+      await client.query('ROLLBACK').catch(() => undefined);
+      // Anything but a server-side SQL error means the connection itself
+      // failed, so it must not go back to the pool.
+      if (!(error instanceof DatabaseError)) broken = error as Error;
+      // Same id inserted concurrently on another resource (another lock).
       if (violates(error, PG_UNIQUE_VIOLATION)) {
         return err({ code: 'id_already_used', id: booking.id });
       }
+      // Unreachable through this method while the lock is held; kept so a
+      // regression surfaces as a conflict instead of a 500.
       if (violates(error, PG_EXCLUSION_VIOLATION)) {
         const conflicts = await this.findActiveConflicts(
           booking.resourceId,
@@ -120,13 +141,9 @@ export class PostgresBookingsRepository implements BookingsRepository {
           conflictingIds: conflicts.map((conflict) => conflict.id),
         });
       }
-      if (violates(error, PG_FOREIGN_KEY_VIOLATION)) {
-        return err({
-          code: 'resource_not_found',
-          resourceId: booking.resourceId,
-        });
-      }
       throw error;
+    } finally {
+      client.release(broken);
     }
   }
 

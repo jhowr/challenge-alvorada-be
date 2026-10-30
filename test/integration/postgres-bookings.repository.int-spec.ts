@@ -117,7 +117,7 @@ describe('Postgres — guarantees beyond the application', () => {
     ).rejects.toMatchObject({ code: '23503' });
   });
 
-  it('maps a foreign key violation to resource_not_found', async () => {
+  it('returns resource_not_found for an unknown resource', async () => {
     const repository = new PostgresBookingsRepository(db.pool);
 
     expect(

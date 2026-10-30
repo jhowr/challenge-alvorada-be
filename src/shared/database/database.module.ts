@@ -4,23 +4,12 @@ import {
   Module,
   type OnApplicationShutdown,
 } from '@nestjs/common';
-import { Pool } from 'pg';
+import type { Pool } from 'pg';
+import { loadConfig } from '../config.js';
+import { createPool } from './create-pool.js';
 import { migrate } from './migrate.js';
 
 export const PG_POOL = Symbol('PG_POOL');
-
-export const DEFAULT_DATABASE_URL =
-  'postgres://booking:booking@localhost:54329/booking';
-
-export function isPostgresDriver(): boolean {
-  const driver = process.env.DB_DRIVER ?? 'memory';
-  if (driver !== 'memory' && driver !== 'postgres') {
-    throw new Error(
-      `DB_DRIVER must be "memory" or "postgres", got "${driver}"`,
-    );
-  }
-  return driver === 'postgres';
-}
 
 /**
  * Provides a migrated pg Pool when DB_DRIVER=postgres, or null otherwise.
@@ -32,10 +21,9 @@ export function isPostgresDriver(): boolean {
     {
       provide: PG_POOL,
       useFactory: async (): Promise<Pool | null> => {
-        if (!isPostgresDriver()) return null;
-        const pool = new Pool({
-          connectionString: process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL,
-        });
+        const config = loadConfig();
+        if (config.DB_DRIVER !== 'postgres') return null;
+        const pool = createPool(config.DATABASE_URL);
         await migrate(pool);
         return pool;
       },
