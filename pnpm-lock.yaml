@@ -6,7 +6,9 @@ settings:
 
 importers:
 
-  .:
+  .: {}
+
+  apps/api:
     dependencies:
       '@nestjs/common':
         specifier: ^12.0.1
