@@ -19,15 +19,13 @@ describe('Bookings (e2e)', () => {
 
   describe('POST /bookings', () => {
     it('201 with the created booking', async () => {
-      await create('A', 'R1', 10, 20)
-        .expect(201)
-        .expect({
-          id: 'A',
-          resourceId: 'R1',
-          start: 10,
-          end: 20,
-          status: 'active',
-        });
+      await create('A', 'R1', 10, 20).expect(201).expect({
+        id: 'A',
+        resourceId: 'R1',
+        start: 10,
+        end: 20,
+        status: 'active',
+      });
     });
 
     it('400 validation_error listing every invalid field', async () => {

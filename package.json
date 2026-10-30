@@ -1,7 +1,7 @@
 {
   "name": "booking-api",
   "version": "0.0.1",
-  "description": "",
+  "description": "Case 02 — conflict-free bookings (Alvorada technical challenge)",
   "author": "",
   "private": true,
   "license": "UNLICENSED",
@@ -19,7 +19,12 @@
     "test:watch": "vitest",
     "test:cov": "vitest run --coverage",
     "test:debug": "vitest --inspect-brk --no-file-parallelism",
-    "test:e2e": "vitest run --config ./vitest.config.e2e.ts"
+    "test:e2e": "vitest run --config ./vitest.config.e2e.ts",
+    "test:pg": "vitest run --config ./vitest.config.integration.ts",
+    "test:all": "pnpm test && pnpm test:e2e && pnpm test:pg",
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "demo": "tsx scripts/demo.ts"
   },
   "dependencies": {
     "@nestjs/common": "^12.0.1",
