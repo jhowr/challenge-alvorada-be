@@ -9,10 +9,14 @@ Solução do [Caso 02 — Reservas sem conflito](https://github.com/Alvorada-Dev
 | **Tempo dedicado** | _preencher_ |
 | **Vídeo** | _link do vídeo_ |
 
-Uma API que diz se um recurso (sala ou equipamento) pode ser reservado em um período, cria e cancela reservas e permite consultá-las. A regra central, de que **duas reservas ativas do mesmo recurso nunca se sobrepõem**, é garantida em duas camadas:
+Uma API que diz se um recurso (sala ou equipamento) pode ser reservado em um período, cria e cancela reservas e permite consultá-las.
 
-1. **No service**, que valida a entrada e explica cada recusa (qual campo está inválido, quais reservas conflitam).
-2. **No PostgreSQL**, com um `EXCLUDE USING gist` sobre `int4range`, que mantém a regra mesmo com requisições concorrentes. O desafio dispensa concorrência, mas um teste prova que ela está coberta.
+**A entrega tem duas partes:**
+- **Modo em memória** (padrão): cumpre o enunciado e roda sem Docker.
+- **Modo Postgres** (o diferencial): leva a regra central para o banco, de modo que **duas reservas ativas do mesmo recurso nunca se sobrepõem**, mesmo com várias instâncias da API e requisições concorrentes. A regra é garantida em três camadas:
+  1. **O service** valida a entrada e explica cada recusa (qual campo está inválido, quais reservas conflitam).
+  2. **Um lock na linha do recurso** serializa as escritas de cada recurso. Sem ele, a contenção vira deadlock (ver [Decisões](#decisões)).
+  3. **Um `EXCLUDE USING gist` sobre `int4range`** garante a regra para qualquer escritor, inclusive SQL direto.
 
 ## Como rodar
 
@@ -21,20 +25,17 @@ Pré-requisitos: **Node 22+**, **pnpm 10+** e, só para o modo Postgres, **Docke
 ```bash
 pnpm install
 
-# Testes unitários e e2e (não precisam de Docker)
-pnpm test          # regras de negócio (services, validator, período, ordenação)
-pnpm test:e2e      # API HTTP com repositórios em memória
-
-# Testes de integração com Postgres (sobe um container via Testcontainers)
-pnpm test:pg
-
-pnpm test:all      # os três acima
+pnpm test          # unitários: regras, validator, período, ordenação (sem Docker)
+pnpm test:e2e      # API HTTP com o driver em memória (sem Docker)
+pnpm test:pg       # contrato dos repositórios, a mesma suíte HTTP e a concorrência
+                   # no Postgres (sobe um container via Testcontainers)
+pnpm test:all      # os três
 ```
 
 ### Demo reproduzível
 
 ```bash
-pnpm demo                         # compila, sobe a API em memória numa porta livre e roda o cenário
+pnpm demo          # compila, sobe a API em memória numa porta livre e roda o cenário
 ```
 
 A demo usa um cenário diferente do enunciado (uma sala e um projetor num dia de trabalho) e imprime, a cada passo, o resultado **esperado** e o **obtido**. Ela termina com código ≠ 0 se algum passo divergir.
@@ -58,30 +59,50 @@ DB_DRIVER=postgres pnpm demo
 ### Subir a API
 
 ```bash
-pnpm start:dev                            # em memória, http://localhost:3000
-pnpm db:up && DB_DRIVER=postgres pnpm start:dev   # Postgres; migrations e seed rodam no boot
+pnpm start:dev                                      # em memória, http://localhost:3000
+pnpm db:up && DB_DRIVER=postgres pnpm start:dev     # Postgres; migrations e seed rodam no boot
 ```
 
 O [requests.http](requests.http) tem as chamadas prontas para o REST Client (VS Code) ou o HTTP Client do JetBrains.
 
-Variáveis de ambiente (ver [.env.example](.env.example)): `PORT` (3000), `DB_DRIVER` (`memory` ou `postgres`) e `DATABASE_URL` (por padrão aponta para o banco do `docker-compose.yml`).
+Configuração por variáveis de ambiente, validada no boot ([config.ts](src/shared/config.ts)):
+
+| Variável | Padrão |
+|---|---|
+| `PORT` | `3000` |
+| `DB_DRIVER` | `memory` (ou `postgres`) |
+| `DATABASE_URL` | o banco do `docker-compose.yml` |
 
 ## API
 
 | Método e rota | Sucesso | Erros |
 |---|---|---|
 | `GET /resources` | 200 lista de ids | — |
-| `GET /resources/:resourceId/availability?start=&end=` | 200 `{ available, conflicts }` | 400 `validation_error`, 404 `resource_not_found` |
+| `GET /resources/:resourceId/availability?start=&end=` | 200 `{ resourceId, start, end, available, conflicts }` | 400 `validation_error`, 404 `resource_not_found` |
 | `POST /bookings` `{ id, resourceId, start, end }` | 201 reserva criada | 400 `validation_error`, 404 `resource_not_found`, 409 `id_already_used`, 409 `conflict` |
 | `GET /bookings?status=&resourceId=` | 200 lista em ordem crescente de id | 400 `validation_error` |
 | `GET /bookings/:id` | 200 reserva | 404 `booking_not_found` |
 | `POST /bookings/:id/cancellation` | 200 `{ outcome: "cancelled" \| "already_cancelled", booking }` | 404 `booking_not_found` |
+| `GET /health` | 200 `{ status, driver }` | 503 `database_unavailable` |
 
-Todo erro tem o formato `{ "code": "...", "message": "...", ...detalhes }`. O cancelamento é um `POST` em um sub-recurso, e não `DELETE`, porque a reserva continua existindo com status `cancelled`.
+Todo erro, inclusive os do próprio framework (JSON malformado, 413, 415, rota inexistente), tem o formato `{ "code": "...", "message": "...", ...detalhes }`. O cancelamento é um `POST` em um sub-recurso, e não `DELETE`, porque a reserva continua existindo com status `cancelled`.
 
-### Termos do enunciado no código
+## Regras implementadas
 
-O código está todo em inglês. A correspondência com o enunciado:
+As regras do enunciado estão numeradas em [docs/PRD.md](docs/PRD.md) (BR1 a BR14), e os testes citam a regra no nome. Onde o enunciado deixa margem, a escolha e o motivo:
+
+- **Nomes em inglês, inclusive `already_cancelled` no lugar de `ja_cancelada`.** Foi uma decisão consciente: todo o código está em inglês, e o retorno mantém o significado pedido. A correspondência completa está abaixo.
+- **Período `[start, end)` com inteiros de 32 bits.** `start < end`; um período vazio ou invertido é inválido. É o limite do `int4range`.
+- **Ordem de validação**: quando há mais de um problema, vence o primeiro desta ordem:
+  1. dados inválidos;
+  2. recurso inexistente;
+  3. id em uso;
+  4. conflito.
+  
+  O motivo é responder sempre o erro mais útil. Sem dados válidos não há o que avaliar, e sem recurso não há id nem horário a discutir. O id em uso vem antes do conflito porque não se resolve trocando o horário, enquanto o conflito se resolve. A resposta de dados inválidos lista todos os campos com problema de uma vez.
+- **Ordem crescente de id = ordem de bytes** (`"10" < "9" < "B" < "a"`), igual em memória e no Postgres. É determinística e não depende de locale (ver [Decisões](#decisões)).
+- **Uma tentativa recusada** não grava nada, então o id continua livre. **Uma reserva criada** guarda o id para sempre, mesmo cancelada.
+- **Identificadores** não podem ter caracteres de controle nem UTF-16 malformado. Sem essa regra, o Postgres rejeitaria um `NUL` com 500 e trocaria um surrogate solto por U+FFFD, e os dois modos divergiriam. O limite de 64 caracteres do id é contado em unidades UTF-16.
 
 | Enunciado | Código |
 |---|---|
@@ -90,15 +111,6 @@ O código está todo em inglês. A correspondência com o enunciado:
 | ativa, cancelada | `active`, `cancelled` |
 | `ja_cancelada` | `already_cancelled` |
 
-## Regras implementadas
-
-As regras do enunciado estão numeradas em [docs/PRD.md](docs/PRD.md) (BR1 a BR14), e os testes citam a regra no nome. Os pontos de interpretação:
-
-- **Período `[start, end)`** com inteiros de 32 bits. `start < end`; um período vazio ou invertido é inválido.
-- **Ordem de validação**: quando há mais de um problema, vence o primeiro desta ordem: dados inválidos, recurso inexistente, id em uso, conflito. A resposta de dados inválidos lista todos os campos com problema de uma vez.
-- **Ordem crescente de id** é a ordem de bytes (`"10" < "9" < "B" < "a"`), igual em memória e no Postgres (ver [docs/DECISIONS.md](docs/DECISIONS.md)).
-- **Uma tentativa recusada** não grava nada, então o id continua livre. **Uma reserva criada** guarda o id para sempre, mesmo cancelada.
-
 ## Arquitetura
 
 ```
@@ -106,53 +118,94 @@ src/
   modules/
     resources/     controllers/ services/ repositories/   lista fixa de recursos
     bookings/      controllers/ services/ repositories/   reservas e disponibilidade
-  shared/          Result<T, E>, ordenação de ids, filtro de erros HTTP, banco e migrations
+    health/        controllers/
+  shared/          Result<T, E>, config, ordenação de ids, filtro de erros HTTP, banco
 test/
-  e2e/             API HTTP (supertest, memória)
-  integration/     suíte de contrato dos repositórios (memória e Postgres) e concorrência
+  e2e/             suíte HTTP (supertest); roda em memória aqui e no Postgres em integration/
+  integration/     contrato dos repositórios, a suíte HTTP no Postgres e a concorrência
+load/              harness de race conditions e benchmark (autocannon)
 scripts/           demo e migrate
 ```
 
-- **Folder by feature**: cada feature é um módulo Nest com `controllers/`, `services/` e `repositories/`. O controller de disponibilidade fica em `bookings/`, mesmo respondendo em `/resources/...`, porque disponibilidade é uma pergunta sobre reservas. Assim só `bookings` depende de `resources`, nunca o contrário.
+- **Folder by feature**: cada feature é um módulo Nest com `controllers/`, `services/` e `repositories/`.
 - **Erros esperados são valores** (`Result<T, E>`), não exceções. O compilador obriga cada chamador a tratar cada caso, e os controllers só traduzem `code` em status HTTP.
-- **Repositório com duas implementações** (`InMemory*` e `Postgres*`), escolhidas por `DB_DRIVER`. A **mesma suíte de contrato** roda contra as duas, o que prova que a API se comporta igual com qualquer uma.
-- **SQL puro com `pg`, sem ORM**: `int4range` e `EXCLUDE` não têm bom suporte em Prisma ou TypeORM, e o schema é o coração da solução ([001_initial.sql](src/shared/database/migrations/001_initial.sql)).
+- **A validação fica nos services**, e não em pipes, porque eles são a fronteira das regras BR1 e BR2 para qualquer chamador, não só o HTTP.
+- **Repositório com duas implementações** (`InMemory*` e `Postgres*`), escolhidas por `DB_DRIVER`. A mesma suíte de contrato e a mesma suíte HTTP rodam contra as duas.
+- **SQL puro com `pg`, sem ORM**: `int4range`, `EXCLUDE` e o lock de linha são o coração da solução, e não têm bom suporte em ORMs ([001_initial.sql](src/shared/database/migrations/001_initial.sql)).
 
 ## Testes
 
-110 testes: 65 unitários (ao lado de cada service), 21 e2e e 24 de integração.
+166 testes: 63 unitários (ao lado de cada service), 40 e2e e 63 de integração no Postgres.
 
 ### Três testes que ajudam a entender a solução
 
-1. **Limite do período semiaberto**: [period.spec.ts](src/modules/bookings/services/period.spec.ts) e "BR3 — a booking may start exactly when another ends" em [bookings.service.spec.ts](src/modules/bookings/services/bookings.service.spec.ts).
-   `[10,20)` e `[20,30)` convivem; `[19,21)` conflita com as duas. **Pega** o erro de usar `<=` em vez de `<` na comparação. Ao trocar o operador, 8 testes falham, inclusive o exemplo do enunciado.
+1. **Limite do período semiaberto**: [booking-period.spec.ts](src/modules/bookings/booking-period.spec.ts) e "BR3 — a booking may start exactly when another ends" em [bookings.service.spec.ts](src/modules/bookings/services/bookings.service.spec.ts). Roda sem Docker.
+   `[10,20)` e `[20,30)` convivem; `[19,21)` conflita com as duas. **Pega** o erro de usar `<=` em vez de `<`. Ao trocar o operador, 8 testes falham, inclusive o exemplo do enunciado.
 
-2. **Interação entre cancelamento e identificador**: "BR6 — an id is never reused, even after cancellation" e "BR5 — an attempt rejected by … does not take the id".
-   Cancelar libera o **horário** mas não o **id**, e uma tentativa recusada não ocupa o id. **Pega** dois erros opostos: implementar o cancelamento como remoção da linha (o id voltaria a ficar livre) e gravar antes de validar (o id seria ocupado por uma tentativa recusada).
+2. **Interação entre cancelamento e identificador**: "BR6 — an id is never reused, even after cancellation" e "BR5 — an attempt rejected by … does not take the id". Roda sem Docker.
+   Cancelar libera o **horário** mas não o **id**, e uma tentativa recusada não ocupa o id. **Pega** dois erros opostos: implementar o cancelamento como remoção da linha (o id ficaria livre) e gravar antes de validar (uma tentativa recusada ocuparia o id).
 
-3. **Concorrência no Postgres**: "accepts exactly one of many concurrent overlapping bookings" em [postgres-bookings.repository.int-spec.ts](test/integration/postgres-bookings.repository.int-spec.ts).
-   Dez requisições sobrepostas, forçadas a passar todas pelas pré-checagens do service antes de qualquer insert. Exatamente uma é aceita e nove recebem `conflict`. **Pega** a corrida "checa e depois insere", que nenhum teste sequencial enxerga: sem o `EXCLUDE`, as dez são aceitas.
+3. **Concorrência no Postgres**: "accepts exactly one of many concurrent overlapping bookings" em [postgres-bookings.repository.int-spec.ts](test/integration/postgres-bookings.repository.int-spec.ts). Precisa de Docker.
+   Dez requisições sobrepostas são forçadas a passar todas pelas pré-checagens do service antes de qualquer escrita. Exatamente uma é aceita, e as nove outras recebem `conflict` com a lista exata de conflitos. **Pega** a corrida "checa e depois insere", que nenhum teste sequencial enxerga. Os testes vizinhos fixam cada camada: um falha sem o lock por recurso e outro falha sem o `EXCLUDE`.
+
+## Testes de carga e race conditions
+
+Precisam do Postgres do compose (`pnpm db:up`).
+
+```bash
+pnpm load:race                       # em memória, 1 instância
+DB_DRIVER=postgres pnpm load:race    # 3 instâncias da API compartilhando o banco
+DB_DRIVER=postgres pnpm load:bench   # throughput e latência, com 100 mil reservas no banco
+```
+
+**[load/race.ts](load/race.ts)** dispara cenários concorrentes, com 200 requisições simultâneas cada, distribuídas entre as instâncias. No fim, confere os invariantes pela API e por SQL: nenhuma sobreposição ativa, nenhum id aceito perdido ou duplicado, nenhum 5xx, conflitos sempre listados e ordenados. Resultado com 3 instâncias no Postgres:
+
+| Cenário | Resultado |
+|---|---|
+| 200 ids diferentes no mesmo horário | 1 aceita, 199 `conflict` |
+| 200 períodos em escada, cada um sobrepondo os vizinhos | conjunto aceito sem sobreposição |
+| 200 requisições com o mesmo id em horários livres | 1 aceita, 199 `id_already_used` |
+| 200 cancelamentos da mesma reserva | 1 `cancelled`, 199 `already_cancelled` |
+| Cancelar uma reserva enquanto 200 tentam o mesmo horário | no máximo 1 nova aceita |
+| Caos: 50 workers × 10 s de create, cancel e availability | ~32 mil requisições, 0 violações, 0 5xx |
+| Derrubar todas as conexões do banco sob carga | as instâncias sobrevivem e voltam a atender |
+
+**[load/bench.ts](load/bench.ts)** usa o autocannon com 50 conexões, uma instância e o gerador de carga na mesma máquina (8 núcleos). Os números servem para comparar cenários entre si, não como capacidade absoluta.
+
+| Cenário | Memória req/s (p99) | Postgres, 100 mil reservas, req/s (p99) |
+|---|---|---|
+| Availability, período livre | 31.360 (3 ms) | 6.690 (17 ms) |
+| Availability com 50 conflitos | 32.203 (3 ms) | 2.762 (29 ms) |
+| Reserva por id | 35.128 (2 ms) | 12.270 (8 ms) |
+| POST sem contenção | 4.198 (32 ms) | 1.681 (44 ms) |
+| POST disputando o mesmo horário (409) | 3.502 (28 ms) | 4.247 (25 ms) |
+
+O POST em memória é mais lento que as leituras porque o repositório em memória varre todas as reservas a cada checagem de conflito (O(n)). Isso é aceitável para o modo de demonstração; no Postgres, a mesma consulta usa o índice GiST.
 
 ## Decisões
 
 O detalhamento, com como cada uma foi investigada, está em [docs/DECISIONS.md](docs/DECISIONS.md):
 
-1. **O teste de concorrência precisava de uma barreira.** A primeira versão passava mesmo sem o constraint, ou seja, não provava nada. Depois de corrigido, o teste revelou deadlocks (`40P01`) entre inserts simultâneos, que viraram retry no repositório.
+1. **Concorrência: do teste que não provava nada ao lock por recurso.** O primeiro teste de concorrência passava mesmo sem o constraint. Depois de corrigido, ele revelou deadlocks. O retry não aguentou o teste de carga (19 erros 500 e 10 s virando 90 s), e a solução foi serializar as escritas por recurso, mantendo o `EXCLUDE` como garantia final.
 2. **Ordem de ids com `COLLATE "C"` e imagem Debian nos testes.** Na imagem Alpine, o teste de ordenação passaria mesmo sem o `COLLATE "C"`.
 
 ## Uso de IA
 
-_Revisar e ajustar com a sua experiência._ A implementação foi feita em par com o Claude Code: primeiro um PRD e um plano revisados por mim (estrutura por feature, nomes em inglês, testes unitários ao lado dos services), depois a execução fase a fase. A verificação não dependeu de confiar no código gerado:
+Usei o Claude Code em par durante todo o trabalho. Primeiro escrevemos um PRD e um plano, que eu revisei e ajustei: estrutura por feature, tudo em inglês, testes unitários ao lado dos services e e2e separados. Depois a implementação foi feita fase a fase. Na sequência, pedi revisões independentes com quatro focos (avaliação do desafio, Postgres, arquitetura NestJS e QA adversarial) e testes de carga. Muito do que mudou veio daí (ver [DECISIONS.md](docs/DECISIONS.md)).
 
-- **Testes por regra** escritos junto com o código, com o nome da regra do PRD.
-- **Testes de mutação manuais**: trocar `<` por `<=` no `overlaps`, remover o `EXCLUDE` e remover o `COLLATE "C"`, e conferir que os testes certos falham. Dois desses experimentos mostraram que testes que passavam não provavam o que diziam (ver Decisões).
-- **Rodar a suíte num clone limpo**, como quem avalia faria. Foi assim que apareceu o deadlock intermitente sob contenção.
-- **Demo contra o servidor real** em memória e no Postgres, conferindo as linhas direto no banco com `psql`.
+Não confiei no código só porque os testes passavam. Como verifiquei:
+
+- **Testes por regra**, com o nome da regra do PRD.
+- **Mutações manuais** para provar que cada teste importante falha quando deve. Troquei `<` por `<=`, removi o `EXCLUDE`, removi o lock e removi o `COLLATE "C"`. Duas vezes um teste que passava não provava o que dizia, e foi corrigido.
+- **Rodar tudo num clone limpo**, como quem avalia faria. Foi assim que apareceu o deadlock intermitente.
+- **Testes de carga com verificação de invariantes no SQL.** Foi por eles que apareceram problemas que nenhum teste unitário mostraria: o retry insuficiente, o processo caindo com uma conexão derrubada e o vazamento de listeners de uma primeira correção.
 
 ## Limites e pendências
 
 - O tempo é um inteiro de 32 bits (`int4range`). Trocar para `int8range` é simples; para decimais seria `numrange`.
 - Recursos são uma lista fixa ([resources.seed.ts](src/modules/resources/resources.seed.ts)); não há cadastro.
-- Sem paginação na listagem, sem autenticação, sem recorrência (fora do escopo do enunciado).
-- No Postgres, se uma reserva concorrente for aceita e cancelada entre o insert recusado e a releitura dos conflitos, o erro `conflict` pode vir com a lista vazia. A garantia de não sobreposição não é afetada.
-- Uma tela em Next.js ficou de fora; o foco foi o back-end.
+- `GET /bookings` não tem paginação. Com volume, o próximo passo seria paginação por keyset sobre `id` e um índice `(resource_id, id)`.
+- Escritas no mesmo recurso são serializadas. É o preço da garantia: recursos diferentes escalam em paralelo, mas um único recurso muito disputado vira fila.
+- No shutdown, as conexões que ainda estavam na fila do sistema operacional são recusadas (`ECONNRESET`). As requisições já em andamento terminam, e conferi no banco que nenhuma escrita se perde.
+- As migrations rodam no boot quando `DB_DRIVER=postgres`. Em produção, seriam um passo separado do deploy (`pnpm db:migrate` já existe).
+- Fora do escopo: autenticação, recorrência, rate limiting, OpenAPI e uma tela em Next.js.

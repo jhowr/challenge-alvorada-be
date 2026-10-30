@@ -1,5 +1,7 @@
 # Plano de execução — Caso 02
 
+> **Documento histórico.** Este é o plano escrito antes da implementação e foi mantido como registro. Ele foi executado (fases 0 a 5). O que mudou durante a execução está em [DECISIONS.md](DECISIONS.md), e o estado atual está no [README](../README.md) e no [PRD](PRD.md). A fase 7 (bônus) ficou de fora.
+
 Referência de requisitos: [PRD.md](PRD.md). Orçamento: **cerca de 4h** de código, testes e docs. Cada fase termina com testes verdes e um commit.
 
 ## Convenções
