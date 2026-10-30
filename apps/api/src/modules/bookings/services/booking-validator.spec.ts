@@ -1,3 +1,4 @@
+import { hour } from '../../../../test/helpers/hours.js';
 import {
   parseAvailabilityQuery,
   parseBookingFilter,
@@ -24,6 +25,21 @@ describe('parseNewBooking', () => {
     expect(
       parseNewBooking({ ...valid, start: -(2 ** 31), end: 2 ** 31 - 1 }).ok,
     ).toBe(true);
+  });
+
+  it('accepts hours since epoch for any four-digit year', () => {
+    const first = hour('0001-01-01T00:00Z');
+    const last = hour('9999-12-31T23:00Z');
+    expect(parseNewBooking({ ...valid, start: first, end: last }).ok).toBe(
+      true,
+    );
+  });
+
+  it('rejects a millisecond timestamp, which is not an hour', () => {
+    const ms = Date.parse('2026-11-02T09:00Z');
+    expect(invalidFields({ ...valid, start: ms, end: ms + 3_600_000 })).toEqual(
+      ['start', 'end'],
+    );
   });
 
   it.each([

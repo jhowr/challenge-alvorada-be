@@ -6,11 +6,11 @@
 
 **Como investiguei, em quatro passos.**
 
-1. **O primeiro teste dava falsa confiança.** Ele disparava 10 `create` sobrepostos com `Promise.all` e esperava 1 aceito. Passou, mas **continuou passando quando removi o `EXCLUDE`**: o primeiro insert terminava antes de as outras requisições checarem conflito. Criei [insert-barrier.repository.ts](../test/helpers/insert-barrier.repository.ts), que segura todos os inserts até as 10 requisições chegarem lá e força o pior intercalamento. Sem o constraint, o teste passou a falhar com 10 aceitas.
+1. **O primeiro teste dava falsa confiança.** Ele disparava 10 `create` sobrepostos com `Promise.all` e esperava 1 aceito. Passou, mas **continuou passando quando removi o `EXCLUDE`**: o primeiro insert terminava antes de as outras requisições checarem conflito. Criei [insert-barrier.repository.ts](../apps/api/test/helpers/insert-barrier.repository.ts), que segura todos os inserts até as 10 requisições chegarem lá e força o pior intercalamento. Sem o constraint, o teste passou a falhar com 10 aceitas.
 
 2. **O teste corrigido revelou deadlocks.** Num clone limpo, ele falhava uma vez a cada seis com `deadlock detected` (`40P01`). Com inserts sobrepostos simultâneos, a checagem do `EXCLUDE` faz cada transação esperar pela linha ainda não commitada da outra, e o ciclo só é detectado depois do `deadlock_timeout` (1 s). A primeira correção foi repetir o insert até 5 vezes.
 
-3. **O retry não aguentou carga.** O harness [load/race.ts](../load/race.ts) roda 3 instâncias da API com 50 workers fazendo create, cancel e availability ao acaso. Ele mostrou **19 respostas 500** e **10 s de carga levando 90 s**, porque cada deadlock custava 1 s. Um revisor independente mediu o mesmo comportamento: com 8 inserts idênticos por rodada, o p99 chegou a 37 s e as falhas persistiram mesmo depois das 5 tentativas.
+3. **O retry não aguentou carga.** O harness [load/race.ts](../apps/api/load/race.ts) roda 3 instâncias da API com 50 workers fazendo create, cancel e availability ao acaso. Ele mostrou **19 respostas 500** e **10 s de carga levando 90 s**, porque cada deadlock custava 1 s. Um revisor independente mediu o mesmo comportamento: com 8 inserts idênticos por rodada, o p99 chegou a 37 s e as falhas persistiram mesmo depois das 5 tentativas.
 
 4. **A correção foi serializar as escritas por recurso.** O insert agora roda numa transação que começa com `SELECT … FROM resources WHERE id = $1 FOR NO KEY UPDATE`. Escritores do mesmo recurso fazem fila em vez de formar ciclos, e a checagem de conflito dentro da transação é exata. Isso também resolveu um caso em que um `conflict` podia vir com a lista de conflitos vazia: o revisor mediu isso em 7% das corridas entre insert e cancelamento.
 
@@ -46,8 +46,15 @@ A mesma collation, com o mesmo nome, ordena diferente conforme a libc da imagem.
 
 **O que concluí.**
 - As colunas de id usam `COLLATE "C"` explicitamente, então a ordem não depende do servidor.
-- Em memória, [compare-ids.ts](../src/shared/compare-ids.ts) compara os **bytes UTF-8** (`Buffer.compare`), e não `a < b`. A comparação por UTF-16 diverge da ordem de bytes para caracteres fora do BMP, e há um teste para isso.
+- Em memória, [compare-ids.ts](../apps/api/src/shared/compare-ids.ts) compara os **bytes UTF-8** (`Buffer.compare`), e não `a < b`. A comparação por UTF-16 diverge da ordem de bytes para caracteres fora do BMP, e há um teste para isso.
 - Os testes de integração e o `docker-compose.yml` usam **`postgres:16` (Debian)**, e não Alpine. Com Alpine, o teste BR13 passaria mesmo sem o `COLLATE "C"`. Com Debian, remover o `COLLATE "C"` faz o teste falhar (`expected [ '10', '9', 'a', 'B' ] to deeply equal [ '10', '9', 'B', 'a' ]`).
+
+## 3. Painel web: login só no Next e cada inteiro como uma hora
+
+O painel em `apps/web` (Next.js + shadcn/ui) é opcional no desafio. Duas decisões mantêm a API como foi entregue e testada:
+
+1. **O login fica só no Next, e a API continua sem autenticação.** Autenticação não faz parte do Caso 02, e colocá-la na API mexeria no backend, nas suítes e2e e de integração e nos testes de carga, que hoje provam as regras de reserva. O painel tem um login de demonstração (credenciais por variável de ambiente) com sessão em cookie `httpOnly` assinado, e um middleware protege as rotas. O servidor do Next chama a API, de modo que o navegador nunca recebe a URL dela e não é preciso CORS. O limite fica explícito: quem alcança a API pela rede não passa pelo login. Em produção, o próximo passo seria a API validar a sessão (ou um token emitido pelo Next) e não ficar exposta fora da rede interna.
+2. **Cada inteiro é uma hora: horas inteiras desde 1970-01-01 00:00 UTC.** O enunciado e a API só exigem inteiros com `start < end` (BR1), e a conta de sobreposição é numérica. Por isso a convenção cabe inteira na UI, sem mudar a API: um único inteiro carrega o dia e a hora, e uma reunião das 9h às 11h de 2 de novembro de 2026 é `[498225, 498227)`. O int32 cobre qualquer ano de quatro dígitos com folga, e a granularidade é de uma hora, o que basta para salas e equipamentos. A demo e os testes antigos continuam com valores como `900` e `1030`, que nessa leitura caem em 1970, e isso não muda nenhuma regra. Testes adicionados (sem trocar os existentes) fixam a convenção: em [booking-period.spec.ts](../apps/api/src/modules/bookings/booking-period.spec.ts), reuniões consecutivas não conflitam, a mesma hora em outro dia não conflita e um plantão que cruza a meia-noite conflita com a manhã seguinte. Em [booking-validator.spec.ts](../apps/api/src/modules/bookings/services/booking-validator.spec.ts), qualquer ano de 0001 a 9999 é aceito e um timestamp em milissegundos é recusado. Na suíte HTTP, o mesmo dia é reservado e consultado contra os dois drivers, inclusive o `int4range` do Postgres. Trocar `<` por `<=` faz esses testes falharem. Se um dia precisar de minutos, o caminho é a API passar a `int8range` (ou `tstzrange`), e não a tela fracionar a hora.
 
 ## Outros achados da revisão e dos testes de carga
 

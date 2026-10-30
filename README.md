@@ -63,9 +63,9 @@ pnpm start:dev                                      # em memória, http://localh
 pnpm db:up && DB_DRIVER=postgres pnpm start:dev     # Postgres; migrations e seed rodam no boot
 ```
 
-O [requests.http](requests.http) tem as chamadas prontas para o REST Client (VS Code) ou o HTTP Client do JetBrains.
+O [requests.http](apps/api/requests.http) tem as chamadas prontas para o REST Client (VS Code) ou o HTTP Client do JetBrains.
 
-Configuração por variáveis de ambiente, validada no boot ([config.ts](src/shared/config.ts)):
+Configuração por variáveis de ambiente, validada no boot ([config.ts](apps/api/src/shared/config.ts)):
 
 | Variável | Padrão |
 |---|---|
@@ -131,21 +131,21 @@ scripts/           demo e migrate
 - **Erros esperados são valores** (`Result<T, E>`), não exceções. O compilador obriga cada chamador a tratar cada caso, e os controllers só traduzem `code` em status HTTP.
 - **A validação fica nos services**, e não em pipes, porque eles são a fronteira das regras BR1 e BR2 para qualquer chamador, não só o HTTP.
 - **Repositório com duas implementações** (`InMemory*` e `Postgres*`), escolhidas por `DB_DRIVER`. A mesma suíte de contrato e a mesma suíte HTTP rodam contra as duas.
-- **SQL puro com `pg`, sem ORM**: `int4range`, `EXCLUDE` e o lock de linha são o coração da solução, e não têm bom suporte em ORMs ([001_initial.sql](src/shared/database/migrations/001_initial.sql)).
+- **SQL puro com `pg`, sem ORM**: `int4range`, `EXCLUDE` e o lock de linha são o coração da solução, e não têm bom suporte em ORMs ([001_initial.sql](apps/api/src/shared/database/migrations/001_initial.sql)).
 
 ## Testes
 
-166 testes: 63 unitários (ao lado de cada service), 40 e2e e 63 de integração no Postgres.
+175 testes: 70 unitários (ao lado de cada service), 41 e2e e 64 de integração no Postgres.
 
 ### Três testes que ajudam a entender a solução
 
-1. **Limite do período semiaberto**: [booking-period.spec.ts](src/modules/bookings/booking-period.spec.ts) e "BR3 — a booking may start exactly when another ends" em [bookings.service.spec.ts](src/modules/bookings/services/bookings.service.spec.ts). Roda sem Docker.
+1. **Limite do período semiaberto**: [booking-period.spec.ts](apps/api/src/modules/bookings/booking-period.spec.ts) e "BR3 — a booking may start exactly when another ends" em [bookings.service.spec.ts](apps/api/src/modules/bookings/services/bookings.service.spec.ts). Roda sem Docker.
    `[10,20)` e `[20,30)` convivem; `[19,21)` conflita com as duas. **Pega** o erro de usar `<=` em vez de `<`. Ao trocar o operador, 8 testes falham, inclusive o exemplo do enunciado.
 
 2. **Interação entre cancelamento e identificador**: "BR6 — an id is never reused, even after cancellation" e "BR5 — an attempt rejected by … does not take the id". Roda sem Docker.
    Cancelar libera o **horário** mas não o **id**, e uma tentativa recusada não ocupa o id. **Pega** dois erros opostos: implementar o cancelamento como remoção da linha (o id ficaria livre) e gravar antes de validar (uma tentativa recusada ocuparia o id).
 
-3. **Concorrência no Postgres**: "accepts exactly one of many concurrent overlapping bookings" em [postgres-bookings.repository.int-spec.ts](test/integration/postgres-bookings.repository.int-spec.ts). Precisa de Docker.
+3. **Concorrência no Postgres**: "accepts exactly one of many concurrent overlapping bookings" em [postgres-bookings.repository.int-spec.ts](apps/api/test/integration/postgres-bookings.repository.int-spec.ts). Precisa de Docker.
    Dez requisições sobrepostas são forçadas a passar todas pelas pré-checagens do service antes de qualquer escrita. Exatamente uma é aceita, e as nove outras recebem `conflict` com a lista exata de conflitos. **Pega** a corrida "checa e depois insere", que nenhum teste sequencial enxerga. Os testes vizinhos fixam cada camada: um falha sem o lock por recurso e outro falha sem o `EXCLUDE`.
 
 ## Testes de carga e race conditions
@@ -158,7 +158,7 @@ DB_DRIVER=postgres pnpm load:race    # 3 instâncias da API compartilhando o ban
 DB_DRIVER=postgres pnpm load:bench   # throughput e latência, com 100 mil reservas no banco
 ```
 
-**[load/race.ts](load/race.ts)** dispara cenários concorrentes, com 200 requisições simultâneas cada, distribuídas entre as instâncias. No fim, confere os invariantes pela API e por SQL: nenhuma sobreposição ativa, nenhum id aceito perdido ou duplicado, nenhum 5xx, conflitos sempre listados e ordenados. Resultado com 3 instâncias no Postgres:
+**[load/race.ts](apps/api/load/race.ts)** dispara cenários concorrentes, com 200 requisições simultâneas cada, distribuídas entre as instâncias. No fim, confere os invariantes pela API e por SQL: nenhuma sobreposição ativa, nenhum id aceito perdido ou duplicado, nenhum 5xx, conflitos sempre listados e ordenados. Resultado com 3 instâncias no Postgres:
 
 | Cenário | Resultado |
 |---|---|
@@ -170,7 +170,7 @@ DB_DRIVER=postgres pnpm load:bench   # throughput e latência, com 100 mil reser
 | Caos: 50 workers × 10 s de create, cancel e availability | ~32 mil requisições, 0 violações, 0 5xx |
 | Derrubar todas as conexões do banco sob carga | as instâncias sobrevivem e voltam a atender |
 
-**[load/bench.ts](load/bench.ts)** usa o autocannon com 50 conexões, uma instância e o gerador de carga na mesma máquina (8 núcleos). Os números servem para comparar cenários entre si, não como capacidade absoluta.
+**[load/bench.ts](apps/api/load/bench.ts)** usa o autocannon com 50 conexões, uma instância e o gerador de carga na mesma máquina (8 núcleos). Os números servem para comparar cenários entre si, não como capacidade absoluta.
 
 | Cenário | Memória req/s (p99) | Postgres, 100 mil reservas, req/s (p99) |
 |---|---|---|
@@ -202,8 +202,8 @@ Não confiei no código só porque os testes passavam. Como verifiquei:
 
 ## Limites e pendências
 
-- O tempo é um inteiro de 32 bits (`int4range`). Trocar para `int8range` é simples; para decimais seria `numrange`.
-- Recursos são uma lista fixa ([resources.seed.ts](src/modules/resources/resources.seed.ts)); não há cadastro.
+- O tempo é um inteiro de 32 bits (`int4range`). O painel lê cada inteiro como uma hora desde 1970-01-01 00:00 UTC (ver [DECISIONS.md](docs/DECISIONS.md)), o que cobre qualquer ano de quatro dígitos. Para minutos, a troca seria para `int8range`; para decimais, `numrange`.
+- Recursos são uma lista fixa ([resources.seed.ts](apps/api/src/modules/resources/resources.seed.ts)); não há cadastro.
 - `GET /bookings` não tem paginação. Com volume, o próximo passo seria paginação por keyset sobre `id` e um índice `(resource_id, id)`.
 - Escritas no mesmo recurso são serializadas. É o preço da garantia: recursos diferentes escalam em paralelo, mas um único recurso muito disputado vira fila.
 - No shutdown, as conexões que ainda estavam na fila do sistema operacional são recusadas (`ECONNRESET`). As requisições já em andamento terminam, e conferi no banco que nenhuma escrita se perde.

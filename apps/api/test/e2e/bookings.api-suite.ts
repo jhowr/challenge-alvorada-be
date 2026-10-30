@@ -1,4 +1,5 @@
 import request from 'supertest';
+import { hour } from '../helpers/hours.js';
 import type { ApiTarget } from '../helpers/api-target.js';
 
 /**
@@ -357,6 +358,47 @@ export function bookingsApiSuite(
           .get('/resources/R1%00/availability?start=0&end=10')
           .expect(400);
         expect(response.body).toMatchObject({ code: 'validation_error' });
+      });
+    });
+
+    describe('hours since epoch (the web panel convention)', () => {
+      const at = (iso: string) => hour(`2026-11-${iso}:00Z`);
+      const ids = (body: { id: string }[]) => body.map((b) => b.id);
+
+      it('books whole hours across days without false conflicts', async () => {
+        await create('standup', 'R1', at('02T09'), at('02T11')).expect(201);
+        await create('review', 'R1', at('02T11'), at('02T12')).expect(201);
+        await create('overnight', 'R1', at('02T22'), at('03T02')).expect(201);
+        await create('next-day', 'R1', at('03T09'), at('03T11')).expect(201);
+
+        const overlap = await create(
+          'late',
+          'R1',
+          at('02T10'),
+          at('02T12'),
+        ).expect(409);
+        expect(overlap.body).toMatchObject({
+          code: 'conflict',
+          conflictingIds: ['review', 'standup'],
+        });
+        const early = await create(
+          'early',
+          'R1',
+          at('03T01'),
+          at('03T03'),
+        ).expect(409);
+        expect(early.body.conflictingIds).toEqual(['overnight']);
+
+        const day = await http()
+          .get(
+            `/resources/R1/availability?start=${at('02T00')}&end=${at('03T00')}`,
+          )
+          .expect(200);
+        expect(ids(day.body.conflicts)).toEqual([
+          'overnight',
+          'review',
+          'standup',
+        ]);
       });
     });
 

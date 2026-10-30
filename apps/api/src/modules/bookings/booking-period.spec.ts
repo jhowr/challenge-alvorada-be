@@ -1,3 +1,4 @@
+import { hour } from '../../../test/helpers/hours.js';
 import { overlaps } from './booking-period.js';
 
 describe('overlaps', () => {
@@ -22,4 +23,23 @@ describe('overlaps', () => {
       expect(overlaps({ start, end }, booked)).toBe(expected);
     },
   );
+});
+
+describe('overlaps with hours since epoch', () => {
+  const at = (from: string, to: string) => ({
+    start: hour(`2026-11-${from}:00Z`),
+    end: hour(`2026-11-${to}:00Z`),
+  });
+  const meeting = at('02T09', '02T11');
+
+  it.each([
+    ['the next meeting starting when it ends', at('02T11', '02T12'), false],
+    ['the previous meeting ending when it starts', at('02T08', '02T09'), false],
+    ['a meeting sharing its last hour', at('02T10', '02T12'), true],
+    ['the same hours on the next day', at('03T09', '03T11'), false],
+    ['a night shift crossing midnight', at('01T22', '02T10'), true],
+  ])('a 09:00–11:00 meeting vs %s overlaps: %s', (_label, other, expected) => {
+    expect(overlaps(meeting, other)).toBe(expected);
+    expect(overlaps(other, meeting)).toBe(expected);
+  });
 });
