@@ -1,7 +1,8 @@
 /**
  * Reproducible walkthrough of the API, using a scenario different from the
  * challenge statement: a meeting room and a projector during a work day.
- * Times are minutes written as HHMM-ish integers (900 = 9:00).
+ * Times are plain integers read as HHMM for readability (900 = 9:00); the
+ * API does not validate them as clock times.
  *
  * By default it starts the compiled app (dist/main.js) on a free port with
  * the current DB_DRIVER and stops it at the end. Set DEMO_URL to run against
