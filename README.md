@@ -30,6 +30,7 @@ pnpm test:e2e      # API HTTP com o driver em memória (sem Docker)
 pnpm test:pg       # contrato dos repositórios, a mesma suíte HTTP e a concorrência
                    # no Postgres (sobe um container via Testcontainers)
 pnpm test:all      # os três
+pnpm test:web      # painel: convenção de horas, sessão e mensagens de erro
 ```
 
 ### Demo reproduzível
@@ -59,8 +60,8 @@ DB_DRIVER=postgres pnpm demo
 ### Subir a API
 
 ```bash
-pnpm start:dev                                      # em memória, http://localhost:3000
-pnpm db:up && DB_DRIVER=postgres pnpm start:dev     # Postgres; migrations e seed rodam no boot
+pnpm dev:api                                      # em memória, http://localhost:3000
+pnpm db:up && DB_DRIVER=postgres pnpm dev:api     # Postgres; migrations e seed rodam no boot
 ```
 
 O [requests.http](apps/api/requests.http) tem as chamadas prontas para o REST Client (VS Code) ou o HTTP Client do JetBrains.
@@ -72,6 +73,24 @@ Configuração por variáveis de ambiente, validada no boot ([config.ts](apps/ap
 | `PORT` | `3000` |
 | `DB_DRIVER` | `memory` (ou `postgres`) |
 | `DATABASE_URL` | o banco do `docker-compose.yml` |
+
+### Painel web (opcional)
+
+Um painel em Next.js + shadcn/ui ([apps/web](apps/web)) para ver a regra funcionando: uma agenda por hora em que se arrasta um período e a API responde na hora se está livre ou com quais reservas conflita, mais a lista de reservas com filtros e cancelamento.
+
+```bash
+pnpm dev           # API em http://localhost:3000 e painel em http://localhost:3001
+```
+
+Entre com `avaliador` / `alvorada` e clique em **Carregar cenário** para criar um dia de exemplo. O login existe só no Next (cookie httpOnly assinado); a API continua sem autenticação, como pede o enunciado. Cada inteiro de `start`/`end` é lido como uma hora desde 1970-01-01 00:00 UTC e mostrado no fuso do navegador, sempre com o inteiro cru ao lado ([DECISIONS.md §3](docs/DECISIONS.md)).
+
+| Variável (painel) | Padrão |
+|---|---|
+| `API_URL` | `http://localhost:3000` |
+| `PANEL_USER` / `PANEL_PASSWORD` | `avaliador` / `alvorada` |
+| `SESSION_SECRET` | um segredo de desenvolvimento; obrigatório em produção |
+
+Ver [apps/web/.env.example](apps/web/.env.example).
 
 ## API
 
@@ -135,7 +154,7 @@ scripts/           demo e migrate
 
 ## Testes
 
-175 testes: 70 unitários (ao lado de cada service), 41 e2e e 64 de integração no Postgres.
+175 testes na API: 70 unitários (ao lado de cada service), 41 e2e e 64 de integração no Postgres. O painel tem mais 42 unitários (`pnpm test:web`).
 
 ### Três testes que ajudam a entender a solução
 
@@ -208,4 +227,5 @@ Não confiei no código só porque os testes passavam. Como verifiquei:
 - Escritas no mesmo recurso são serializadas. É o preço da garantia: recursos diferentes escalam em paralelo, mas um único recurso muito disputado vira fila.
 - No shutdown, as conexões que ainda estavam na fila do sistema operacional são recusadas (`ECONNRESET`). As requisições já em andamento terminam, e conferi no banco que nenhuma escrita se perde.
 - As migrations rodam no boot quando `DB_DRIVER=postgres`. Em produção, seriam um passo separado do deploy (`pnpm db:migrate` já existe).
-- Fora do escopo: autenticação, recorrência, rate limiting, OpenAPI e uma tela em Next.js.
+- O painel supõe que o servidor Next e o navegador estão no mesmo fuso (o caso da demo local): o servidor recorta o dia pelo fuso dele, e o navegador formata pelo seu.
+- Fora do escopo na API: autenticação, recorrência, rate limiting e OpenAPI. O painel tem um login simples só para a demo.

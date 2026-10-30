@@ -1,0 +1,217 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Tokens do painel. Os componentes só falam em `bg-primary`,
+   `text-muted-foreground`, `bg-period`…, nunca em cor crua.
+
+   O mundo é o padrão shadcn executado com cuidado (PRODUCT.md): neutros com um
+   leve tom de papel, uma sidebar em azul-tinta nos dois temas e três cores com
+   um único dono cada, para que a cor seja informação e não decoração:
+   - violeta (`period`) é só o período consultado ou selecionado na grade;
+   - âmbar (`conflict`) é só conflito;
+   - verde (`free`) é só "livre" e reserva ativa.
+   O vermelho (`destructive`) só aparece em cancelar. */
+:root {
+  --tinta: #13202e;
+  --papel: #f6f7f5;
+
+  --background: var(--papel);
+  --foreground: #141a21;
+  --card: #fdfdfc;
+  --card-foreground: #141a21;
+  --popover: #fdfdfc;
+  --popover-foreground: #141a21;
+  --primary: var(--tinta);
+  --primary-foreground: #f6f7f5;
+  --secondary: #eceeeb;
+  --secondary-foreground: #141a21;
+  --muted: #eceeeb;
+  /* Escurecido até passar 4.5:1 sobre o papel. */
+  --muted-foreground: #5a6470;
+  --accent: #eceeeb;
+  --accent-foreground: #141a21;
+  --destructive: #b3261e;
+  --border: #dde1de;
+  --input: #d3d8d5;
+  --ring: #6d4fd6;
+
+  --period: #6d4fd6;
+  --period-foreground: #ffffff;
+  --conflict: #b45c00;
+  --conflict-surface: #fdf1e3;
+  --free: #1f7a4d;
+  --free-surface: #e5f3eb;
+  /* O bloco de reserva ativa: tinta bem clara, para a grade continuar leve. */
+  --booking: #e3e9f1;
+  --booking-border: #b9c6d6;
+  --booking-foreground: #1b2b3d;
+
+  --radius: 0.5rem;
+
+  --chart-1: var(--tinta);
+  --chart-2: var(--period);
+  --chart-3: var(--free);
+  --chart-4: var(--conflict);
+  --chart-5: #8a96a3;
+
+  /* A sidebar é tinta nos dois temas: ela é a moldura, o conteúdo é papel. */
+  --sidebar: var(--tinta);
+  --sidebar-foreground: #c4cdd6;
+  --sidebar-primary: #ffffff;
+  --sidebar-primary-foreground: var(--tinta);
+  --sidebar-accent: #1d2d3e;
+  --sidebar-accent-foreground: #ffffff;
+  --sidebar-border: rgb(255 255 255 / 0.08);
+  --sidebar-ring: #a993f0;
+}
+
+.dark {
+  --background: #0d1218;
+  --foreground: #e7ebee;
+  --card: #131a22;
+  --card-foreground: #e7ebee;
+  --popover: #18202a;
+  --popover-foreground: #e7ebee;
+  --primary: #e7ebee;
+  --primary-foreground: #0d1218;
+  --secondary: #1b242e;
+  --secondary-foreground: #e7ebee;
+  --muted: #1b242e;
+  --muted-foreground: #97a3af;
+  --accent: #1b242e;
+  --accent-foreground: #e7ebee;
+  --destructive: #e5534b;
+  --border: rgb(231 235 238 / 0.1);
+  --input: rgb(231 235 238 / 0.15);
+  --ring: #a993f0;
+
+  --period: #a993f0;
+  --period-foreground: #0d1218;
+  --conflict: #f0a24a;
+  --conflict-surface: #33240f;
+  --free: #5cc48d;
+  --free-surface: #12291d;
+  --booking: #1e2c3c;
+  --booking-border: #34475c;
+  --booking-foreground: #d6e0ea;
+
+  /* No escuro a sidebar levanta um passo em vez de escurecer. */
+  --sidebar: #111922;
+  --sidebar-foreground: #b4c0cb;
+  --sidebar-accent: #1b2632;
+  --sidebar-border: rgb(231 235 238 / 0.08);
+}
+
+@theme inline {
+  --font-sans: var(--font-geist);
+  --font-heading: var(--font-geist);
+  --font-mono: var(--font-geist-mono);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-period: var(--period);
+  --color-period-foreground: var(--period-foreground);
+  --color-conflict: var(--conflict);
+  --color-conflict-surface: var(--conflict-surface);
+  --color-free: var(--free);
+  --color-free-surface: var(--free-surface);
+  --color-booking: var(--booking);
+  --color-booking-border: var(--booking-border);
+  --color-booking-foreground: var(--booking-foreground);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.5);
+  --radius-2xl: calc(var(--radius) * 2);
+
+  /* Curvas fortes de ease-out (emil-design-eng): responde rápido, assenta suave. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  h1,
+  h2,
+  h3 {
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+  /* Números em coluna sempre tabulares: horas e inteiros se alinham. */
+  table,
+  time {
+    font-variant-numeric: tabular-nums;
+  }
+  /* As superfícies que o navegador desenha também carregam o design. */
+  ::selection {
+    background: color-mix(in oklab, var(--period) 22%, transparent);
+  }
+  :focus-visible {
+    outline-color: var(--ring);
+  }
+}
+
+/* Um aperto sutil em tudo que se pressiona (emil-design-eng). */
+@utility pressable {
+  transition: transform 140ms var(--ease-out);
+  &:active:not(:disabled) {
+    transform: scale(0.97);
+  }
+}
+
+/* Reserva cancelada: hachura discreta, lida como "o espaço existe, a reserva não". */
+@utility hatched {
+  background-image: repeating-linear-gradient(
+    135deg,
+    transparent 0 5px,
+    color-mix(in oklab, var(--muted-foreground) 22%, transparent) 5px 6px
+  );
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pressable:active {
+    transform: none;
+  }
+}

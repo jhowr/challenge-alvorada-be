@@ -37,7 +37,9 @@ The UI makes the API's guarantees visible instead of hiding them: every refusal 
 
 ## Brand Commitments
 
-None. Product copy is in Portuguese (pt-BR), code in English.
+No brand assets. Product copy is in Portuguese (pt-BR), code in English.
+
+Standing preference (user, 2026-10-30): the panel is the shadcn/ui category standard executed with care, not a themed visual world. Craft bar: the user's own ninebrains panel (`~/Works/ninebrains/workspace/apps/web`): dark sidebar, small aligned faceted filters, data table with row actions, commented design tokens.
 
 ## Evidence on Hand
 

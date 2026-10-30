@@ -5,6 +5,7 @@
   "packageManager": "pnpm@10.33.2",
   "scripts": {
     "dev": "pnpm --parallel --filter @booking/api --filter @booking/web dev",
+    "dev:api": "pnpm --filter @booking/api start:dev",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
@@ -12,6 +13,7 @@
     "test:e2e": "pnpm --filter @booking/api test:e2e",
     "test:pg": "pnpm --filter @booking/api test:pg",
     "test:all": "pnpm --filter @booking/api test:all",
+    "test:web": "pnpm --filter @booking/web test",
     "demo": "pnpm --filter @booking/api demo",
     "db:up": "pnpm --filter @booking/api db:up",
     "db:reset": "pnpm --filter @booking/api db:reset"
