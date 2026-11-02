@@ -4,6 +4,3 @@ coverage/
 *.tsbuildinfo
 .env
 .DS_Store
-
-# impeccable scratch (decision sketches, question state)
-/.impeccable/
