@@ -6,8 +6,8 @@ Solução do [Caso 02 — Reservas sem conflito](https://github.com/Alvorada-Dev
 |---|---|
 | **Caso** | 02 — Reservas sem conflito |
 | **Foco** | Back-end e modelagem de dados: API NestJS + PostgreSQL |
-| **Tempo dedicado** | _preencher_ |
-| **Vídeo** | _link do vídeo_ |
+| **Tempo dedicado** | 4 horas |
+| **Vídeo** | https://drive.google.com/file/d/19kcGUp7vjl_D6j2Y_OWLZGzwmFC9ZXd3/view?usp=sharing |
 
 Uma API que diz se um recurso (sala ou equipamento) pode ser reservado em um período, cria e cancela reservas e permite consultá-las.
 
@@ -21,7 +21,30 @@ O enunciado permite que tudo rode em memória. Optei por exigir o banco: a API s
 
 ## Como rodar
 
-Pré-requisitos: **Node 22+**, **pnpm 10+** e **Docker**.
+### Só com Docker
+
+```bash
+docker compose up --build        # Postgres + API em http://localhost:3000
+```
+
+As migrations (schema e recursos) rodam quando a API sobe. Para conferir o exemplo do enunciado:
+
+```bash
+curl -X POST localhost:3000/bookings -H 'content-type: application/json' -d '{"id":"A","resourceId":"R1","start":10,"end":20}'   # 201
+curl -X POST localhost:3000/bookings -H 'content-type: application/json' -d '{"id":"B","resourceId":"R1","start":20,"end":30}'   # 201
+curl -X POST localhost:3000/bookings -H 'content-type: application/json' -d '{"id":"C","resourceId":"R1","start":19,"end":21}'   # 409 conflict: A, B
+curl -X POST localhost:3000/bookings -H 'content-type: application/json' -d '{"id":"C","resourceId":"R2","start":19,"end":21}'   # 201
+curl 'localhost:3000/resources/R1/availability?start=19&end=21'                                                                  # conflitos A e B
+curl -X POST localhost:3000/bookings/A/cancellation                                                                             # cancelled
+curl 'localhost:3000/resources/R1/availability?start=10&end=20'                                                                  # available: true
+curl -X POST localhost:3000/bookings -H 'content-type: application/json' -d '{"id":"A","resourceId":"R1","start":10,"end":20}'   # 409 id_already_used
+```
+
+O [requests.http](requests.http) tem as mesmas chamadas e outras, prontas para o REST Client (VS Code) ou o HTTP Client do JetBrains. `docker compose down -v` apaga tudo.
+
+### Com Node (testes, demo e carga)
+
+Pré-requisitos: **Node 24** (22.13+ é o mínimo das dependências), **pnpm 10+** e **Docker**. Se a API do Docker estiver no ar, pare-a antes (`docker compose stop api`), porque o `start:dev` usa a mesma porta 3000.
 
 ```bash
 pnpm install
@@ -39,7 +62,7 @@ pnpm db:up         # Postgres do docker compose (porta 54329)
 pnpm demo          # migra, apaga as reservas, sobe a API numa porta livre e roda o cenário
 ```
 
-A demo usa um cenário diferente do enunciado (uma sala e um projetor num dia de trabalho) e imprime, a cada passo, o resultado **esperado** e o **obtido**. Ela termina com código ≠ 0 se algum passo divergir.
+A demo usa um cenário diferente do enunciado (uma sala e um projetor num dia de trabalho) e imprime, a cada passo, o resultado **esperado** e o **obtido**. Ela termina com código ≠ 0 se algum passo divergir. A API só vê inteiros; na demo, `900` é lido como 9:00 apenas para facilitar a leitura.
 
 ```
 3. ROOM-A: "planning" for [930, 1030) overlaps retro only
@@ -50,13 +73,11 @@ A demo usa um cenário diferente do enunciado (uma sala e um projetor num dia de
 14/14 steps matched the expectation.
 ```
 
-### Subir a API
+### Subir a API em modo dev
 
 ```bash
 pnpm db:up && pnpm start:dev     # http://localhost:3000; as migrations (schema e recursos) rodam no boot
 ```
-
-O [requests.http](requests.http) tem as chamadas prontas para o REST Client (VS Code) ou o HTTP Client do JetBrains.
 
 Configuração por variáveis de ambiente, validada no boot ([env.config.ts](src/config/env.config.ts)). A conexão e o pool ficam em [database.config.ts](src/config/database.config.ts).
 
@@ -69,7 +90,7 @@ O `.env` é versionado com os valores de desenvolvimento, que não têm segredo 
 
 ### Painel web (opcional)
 
-Há um painel em Next.js + shadcn/ui, num repositório separado (`alvorada-web`), para ver a regra funcionando: uma agenda do dia em que se arrasta um período, em passos de 15 minutos, e a API responde na hora se está livre ou com quais reservas conflita. Ele é um complemento e não faz parte da entrega. As duas decisões que o ligam a esta API estão em [DECISIONS.md §3](docs/DECISIONS.md): o login fica só no Next, e cada inteiro é lido como um minuto.
+Há um painel em Next.js + shadcn/ui, num repositório separado (`alvorada-web`), para ver a regra funcionando: uma agenda do dia em que se arrasta um período, em passos de 15 minutos, e a API responde na hora se está livre ou com quais reservas conflita. Ele é um complemento e não faz parte da entrega. As duas decisões que o ligam a esta API estão em [DECISIONS.md §3](docs/DECISIONS.md#3-painel-web-login-só-no-next-e-cada-inteiro-como-um-minuto): o login fica só no Next, e cada inteiro é lido como um minuto.
 
 ## API
 
@@ -183,13 +204,14 @@ Dois custos medidos estão em [DECISIONS.md](docs/DECISIONS.md): o TypeORM custa
 
 ## Decisões
 
-O detalhamento, com como cada uma foi investigada, está em [docs/DECISIONS.md](docs/DECISIONS.md):
+O detalhamento, com o que eu queria conferir, como investiguei e o que concluí, está em [docs/DECISIONS.md](docs/DECISIONS.md). As duas decisões pedidas pelo enunciado são a 1 e a 2; as outras são complementares.
 
 1. **Concorrência: do teste que não provava nada ao lock por recurso.** O primeiro teste de concorrência passava mesmo sem o constraint. Depois de corrigido, ele revelou deadlocks. O retry não aguentou o teste de carga (19 erros 500 e 10 s virando 90 s), e a solução foi serializar as escritas por recurso, mantendo o `EXCLUDE` como garantia final.
 2. **Ordem de ids com `COLLATE "C"` e imagem Debian nos testes.** Na imagem Alpine, o teste de ordenação passaria mesmo sem o `COLLATE "C"`.
 3. **Painel web: login só no Next e cada inteiro como um minuto.** O painel é opcional e fica em outro repositório; a API continua sem autenticação.
 4. **TypeORM para a infraestrutura, núcleo em SQL explícito.** O ORM entrou depois, pensando no crescimento, e cuida de conexão, pool e migrations. O lock por recurso, o `&&` sobre `int4range` e o `EXCLUDE` continuam escritos à mão, e um teste garante que as entities não divergem das migrations.
 5. **DTOs na borda HTTP e só Postgres.** A validação saiu dos services para DTOs com class-validator, e o modo em memória foi removido: a API exige um banco configurado e acessível.
+6. **Erros de domínio e serialização fora dos controllers.** Os services lançam erros de domínio que um filtro global traduz em 404 ou 409, e as responses saem pelo `ClassSerializerInterceptor` do Nest. Os controllers ficaram com uma linha por rota, ao custo medido de throughput em respostas com listas.
 
 ## Uso de IA
 

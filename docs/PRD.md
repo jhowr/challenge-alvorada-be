@@ -1,6 +1,6 @@
 # PRD — Caso 02: Reservas sem conflito
 
-> Desafio técnico Alvorada (vaga Senior/Staff Full Stack, Finch).
+> Desafio técnico Alvorada.
 > Enunciado: https://github.com/Alvorada-Dev/desafios-tecnicos/blob/main/casos/02-reservas-de-recursos.md
 >
 > Estado: implementado. Este documento foi atualizado para refletir o código final.

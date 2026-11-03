@@ -1,5 +1,8 @@
 # Manual exploration with the VS Code REST Client (or JetBrains HTTP client).
-# Start the API first: `pnpm db:up && pnpm start:dev`.
+# Start the API first: `pnpm db:up && pnpm start:dev`, or `docker compose up --build`.
+# The expected results assume no bookings yet: run `pnpm db:reset` (or
+# `docker compose down -v`) first, since ids are never reused.
+# Times are plain integers; here 900 reads as 9:00 just for readability.
 @api = http://localhost:3000
 
 ### Resources
@@ -9,22 +12,22 @@ GET {{api}}/resources
 POST {{api}}/bookings
 Content-Type: application/json
 
-{ "id": "daily", "resourceId": "ROOM-A", "start": 900, "end": 915 }
+{ "id": "daily", "resourceId": "ROOM-A", "start": 29895240, "end": 29895300 }
 
 ### Adjacent booking: starts when "daily" ends → 201
 POST {{api}}/bookings
 Content-Type: application/json
 
-{ "id": "retro", "resourceId": "ROOM-A", "start": 915, "end": 1000 }
+{ "id": "retro", "resourceId": "ROOM-A", "start": 29895300, "end": 29895360 }
 
 ### Overlap → 409 conflict with ["retro"]
 POST {{api}}/bookings
 Content-Type: application/json
 
-{ "id": "planning", "resourceId": "ROOM-A", "start": 930, "end": 1030 }
+{ "id": "planning", "resourceId": "ROOM-A", "start": 29895350, "end": 29895380 }
 
 ### Availability without booking
-GET {{api}}/resources/ROOM-A/availability?start=850&end=1000
+GET {{api}}/resources/ROOM-A/availability?start=29895360&end=29895380
 
 ### Cancel (repeat it to get "already_cancelled")
 POST {{api}}/bookings/retro/cancellation

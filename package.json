@@ -24,8 +24,8 @@
     "typecheck": "tsc --noEmit",
     "db:migrate": "tsx scripts/migrate.ts",
     "demo": "nest build && tsx scripts/demo.ts",
-    "db:up": "docker compose up -d --wait",
-    "db:reset": "docker compose down -v && docker compose up -d --wait",
+    "db:up": "docker compose up -d --wait postgres",
+    "db:reset": "docker compose down -v && docker compose up -d --wait postgres",
     "load:race": "nest build && tsx load/race.ts",
     "load:bench": "nest build && tsx load/bench.ts"
   },
@@ -65,7 +65,11 @@
   },
   "pnpm": {
     "ignoredBuiltDependencies": [
-      "@swc/core"
+      "@swc/core",
+      "cpu-features",
+      "esbuild",
+      "protobufjs",
+      "ssh2"
     ]
   }
 }
