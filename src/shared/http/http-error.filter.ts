@@ -7,6 +7,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { DomainError, type DomainErrorKind } from '../domain-error';
 
 interface ErrorBody {
   code: string;
@@ -24,7 +25,15 @@ const CODE_BY_STATUS: Partial<Record<number, string>> = {
   [HttpStatus.UNSUPPORTED_MEDIA_TYPE]: 'unsupported_media_type',
 };
 
-/** Gives every error response the same `{ code, message, ... }` shape. */
+const STATUS_BY_KIND: Record<DomainErrorKind, HttpStatus> = {
+  not_found: HttpStatus.NOT_FOUND,
+  conflict: HttpStatus.CONFLICT,
+};
+
+/**
+ * Gives every error response the same `{ code, message, ... }` shape, and
+ * turns the business failures services throw into their HTTP status.
+ */
 @Catch()
 export class HttpErrorFilter implements ExceptionFilter {
   private readonly logger = new Logger(HttpErrorFilter.name);
@@ -43,6 +52,16 @@ export class HttpErrorFilter implements ExceptionFilter {
   }
 
   private toResponse(exception: unknown): { status: number; body: ErrorBody } {
+    if (exception instanceof DomainError) {
+      return {
+        status: STATUS_BY_KIND[exception.kind],
+        body: {
+          code: exception.code,
+          message: exception.message,
+          ...exception.details(),
+        },
+      };
+    }
     if (!(exception instanceof HttpException)) {
       return {
         status: HttpStatus.INTERNAL_SERVER_ERROR,

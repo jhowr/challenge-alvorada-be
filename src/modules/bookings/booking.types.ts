@@ -1,5 +1,3 @@
-import type { ValidationError } from '../../shared/validation.js';
-
 export const BOOKING_STATUSES = ['active', 'cancelled'] as const;
 export type BookingStatus = (typeof BOOKING_STATUSES)[number];
 
@@ -34,28 +32,3 @@ export interface Availability extends AvailabilityQuery {
 }
 
 export type CancelOutcome = 'cancelled' | 'already_cancelled';
-
-export interface ResourceNotFoundError {
-  code: 'resource_not_found';
-  resourceId: string;
-}
-
-export interface IdAlreadyUsedError {
-  code: 'id_already_used';
-  id: string;
-}
-
-export interface ConflictError {
-  code: 'conflict';
-  conflictingIds: string[];
-}
-
-export interface BookingNotFoundError {
-  code: 'booking_not_found';
-  id: string;
-}
-
-export type CreateBookingError =
-  ValidationError | ResourceNotFoundError | IdAlreadyUsedError | ConflictError;
-
-export type AvailabilityError = ValidationError | ResourceNotFoundError;

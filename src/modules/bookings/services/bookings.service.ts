@@ -1,60 +1,48 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { err, ok, type Result } from '../../../shared/result.js';
-import type { ValidationError } from '../../../shared/validation.js';
-import { ResourcesService } from '../../resources/services/resources.service.js';
+import { Injectable } from '@nestjs/common';
+import { ResourcesService } from '../../resources/services/resources.service';
+import {
+  BookingNotFoundError,
+  ConflictError,
+  IdAlreadyUsedError,
+  ResourceNotFoundError,
+} from '../booking.errors';
 import type {
   Booking,
-  BookingNotFoundError,
+  BookingFilter,
   CancelOutcome,
-  CreateBookingError,
-} from '../booking.types.js';
-import {
-  BOOKINGS_REPOSITORY,
-  type BookingsRepository,
-} from '../repositories/bookings.repository.js';
-import {
-  isPossibleBookingId,
-  parseBookingFilter,
-  parseNewBooking,
-} from './booking-validator.js';
+  NewBooking,
+} from '../booking.types';
+import { BookingsRepository } from '../repositories/bookings.repository';
 
 @Injectable()
 export class BookingsService {
   constructor(
-    @Inject(BOOKINGS_REPOSITORY)
     private readonly bookings: BookingsRepository,
     private readonly resources: ResourcesService,
   ) {}
 
   /**
-   * Checks run in a fixed order and the first failure wins (PRD §4):
-   * validation → resource → id → overlap. A rejected attempt stores nothing,
-   * so its id stays free (BR5).
+   * Receives a validated booking (the DTO checks BR1 and BR2 first). The
+   * remaining checks run in a fixed order and the first failure wins (PRD §4):
+   * resource → id → overlap. A rejected attempt stores nothing, so its id
+   * stays free (BR5).
+   *
+   * @throws ResourceNotFoundError, IdAlreadyUsedError or ConflictError
    */
-  async create(input: unknown): Promise<Result<Booking, CreateBookingError>> {
-    const parsed = parseNewBooking(input);
-    if (!parsed.ok) return parsed;
-    const booking = parsed.value;
-
+  async create(booking: NewBooking): Promise<Booking> {
     if (!(await this.resources.exists(booking.resourceId))) {
-      return err({
-        code: 'resource_not_found',
-        resourceId: booking.resourceId,
-      });
+      throw new ResourceNotFoundError(booking.resourceId);
     }
     // Cancelled bookings still hold their id (BR6), so look up any status.
     if (await this.bookings.findById(booking.id)) {
-      return err({ code: 'id_already_used', id: booking.id });
+      throw new IdAlreadyUsedError(booking.id);
     }
     const conflicts = await this.bookings.findActiveConflicts(
       booking.resourceId,
       booking,
     );
     if (conflicts.length > 0) {
-      return err({
-        code: 'conflict',
-        conflictingIds: conflicts.map((conflict) => conflict.id),
-      });
+      throw new ConflictError(conflicts.map((conflict) => conflict.id));
     }
 
     // The checks above give precise errors in the sequential case; insert()
@@ -62,30 +50,26 @@ export class BookingsService {
     return this.bookings.insert(booking);
   }
 
+  /** @throws BookingNotFoundError */
   async cancel(
     id: string,
-  ): Promise<
-    Result<{ outcome: CancelOutcome; booking: Booking }, BookingNotFoundError>
-  > {
-    if (!isPossibleBookingId(id)) return err({ code: 'booking_not_found', id });
+  ): Promise<{ outcome: CancelOutcome; booking: Booking }> {
     const cancelled = await this.bookings.cancelIfActive(id);
-    if (cancelled) return ok({ outcome: 'cancelled', booking: cancelled });
+    if (cancelled) return { outcome: 'cancelled', booking: cancelled };
 
     const existing = await this.bookings.findById(id);
-    if (!existing) return err({ code: 'booking_not_found', id });
-    return ok({ outcome: 'already_cancelled', booking: existing });
+    if (!existing) throw new BookingNotFoundError(id);
+    return { outcome: 'already_cancelled', booking: existing };
   }
 
-  async findById(id: string): Promise<Result<Booking, BookingNotFoundError>> {
-    // A malformed id (e.g. with NUL) cannot exist, and Postgres would reject it.
-    if (!isPossibleBookingId(id)) return err({ code: 'booking_not_found', id });
+  /** @throws BookingNotFoundError */
+  async findById(id: string): Promise<Booking> {
     const booking = await this.bookings.findById(id);
-    return booking ? ok(booking) : err({ code: 'booking_not_found', id });
+    if (!booking) throw new BookingNotFoundError(id);
+    return booking;
   }
 
-  async list(filter: unknown): Promise<Result<Booking[], ValidationError>> {
-    const parsed = parseBookingFilter(filter);
-    if (!parsed.ok) return parsed;
-    return ok(await this.bookings.list(parsed.value));
+  list(filter: BookingFilter): Promise<Booking[]> {
+    return this.bookings.list(filter);
   }
 }

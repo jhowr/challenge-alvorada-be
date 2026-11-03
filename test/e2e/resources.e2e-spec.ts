@@ -1,30 +1,34 @@
-import type { INestApplication } from '@nestjs/common';
 import request from 'supertest';
-import type { App } from 'supertest/types.js';
-import { createTestApp } from '../helpers/create-test-app.js';
+import { startTestApp, type TestApp } from '../helpers/test-app';
 
 describe('Resources (e2e)', () => {
-  let app: INestApplication<App>;
+  let testApp: TestApp;
+  const http = () => request(testApp.app.getHttpServer());
 
-  beforeEach(async () => {
-    app = await createTestApp();
+  beforeAll(async () => {
+    testApp = await startTestApp();
   });
 
-  afterEach(async () => {
-    await app.close();
+  afterAll(async () => {
+    await testApp?.close();
   });
 
   it('GET /resources lists the fixed resources in ascending id order', async () => {
-    await request(app.getHttpServer())
+    await http()
       .get('/resources')
       .expect(200)
       .expect(['PROJECTOR-1', 'R1', 'R2', 'ROOM-A', 'ROOM-B']);
   });
 
-  it('unknown routes answer with the standard error shape', async () => {
-    const response = await request(app.getHttpServer())
-      .get('/nope')
+  it('resource ids are case-sensitive', async () => {
+    const response = await http()
+      .get('/resources/r1/availability?start=0&end=1')
       .expect(404);
+    expect(response.body).toMatchObject({ code: 'resource_not_found' });
+  });
+
+  it('unknown routes answer with the standard error shape', async () => {
+    const response = await http().get('/nope').expect(404);
     expect(response.body).toMatchObject({ code: 'route_not_found' });
   });
 });

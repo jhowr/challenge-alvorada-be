@@ -1,6 +1,6 @@
 # Plano de execução — Caso 02
 
-> **Documento histórico.** Este é o plano escrito antes da implementação e foi mantido como registro. Ele foi executado (fases 0 a 5). O que mudou durante a execução está em [DECISIONS.md](DECISIONS.md), e o estado atual está no [README](../README.md) e no [PRD](PRD.md). A fase 7 (bônus) ficou de fora.
+> **Documento histórico.** Este é o plano escrito antes da implementação e foi mantido como registro. Ele foi executado (fases 0 a 5). O que mudou durante a execução está em [DECISIONS.md](DECISIONS.md), e o estado atual está no [README](../README.md) e no [PRD](PRD.md). A fase 7 (bônus) virou um painel opcional num repositório separado (`alvorada-web`).
 
 Referência de requisitos: [PRD.md](PRD.md). Orçamento: **cerca de 4h** de código, testes e docs. Cada fase termina com testes verdes e um commit.
 
@@ -185,7 +185,7 @@ Cenário **diferente do enunciado**: sala de reunião e projetor em um dia de tr
 Roteiro de 15 a 25 minutos:
 1. (2 min) O problema e o foco escolhido.
 2. (5 min) `pnpm demo`: narrar o resultado **esperado** antes de cada passo e comparar com o obtido.
-3. (5 min) Arquitetura: folder by feature, os services com regras puras, o repository com duas implementações e a suíte de contrato.
+3. (5 min) Arquitetura: folder by feature, os services com regras puras, um repositório por entidade com as queries dentro.
 4. (6 min) Mostrar o teste de concorrência e o `EXCLUDE` que ele confere. Ao vivo: comentar o constraint, ver o teste falhar e restaurar.
 5. (3 min) Alternativas consideradas (ORM, lock pessimista com `SELECT ... FOR UPDATE`, `tsrange`), limites e pendências.
 6. (2 min) Como usei IA e como verifiquei.

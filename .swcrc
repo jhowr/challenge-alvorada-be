@@ -1,0 +1,6 @@
+{
+  "$schema": "https://swc.rs/schema.json",
+  // Without a baseUrl, SWC ignores the resolveFully that `nest build` sets
+  // for ES modules, and the imports in dist/ would lose their .js extension.
+  "jsc": { "baseUrl": "./", "target": "es2024" }
+}

@@ -1,29 +1,32 @@
 /**
  * Throughput and latency benchmark with autocannon against one instance of
- * the compiled app. DB_DRIVER selects the repositories. In Postgres mode the
- * database is first filled with SEED bookings (default 100k) so queries run
+ * the compiled app. The database in DATABASE_URL is migrated and its
+ * bookings are replaced by SEED bookings (default 100k), so queries run
  * against a realistic table, not an empty one.
  *
  * Both the load generator and the server run on this machine, so absolute
  * numbers are a lower bound; compare scenarios with each other.
  */
 import autocannon, { type Result } from 'autocannon';
-import { loadConfig } from '../src/shared/config.js';
-import { createPool } from '../src/shared/database/create-pool.js';
-import { startServers } from './servers.js';
+import { DataSource } from 'typeorm';
+import { databaseOptions, runMigrations } from '../src/config/database.config';
+import { loadConfig } from '../src/config/env.config';
+import { startServers } from './servers';
 
-const postgres = process.env.DB_DRIVER === 'postgres';
 const seed = Number(process.env.SEED ?? 100_000);
 const duration = Number(process.env.DURATION ?? 10);
 const connections = Number(process.env.CONNECTIONS ?? 50);
 const run = Date.now().toString(36);
 
 async function seedDatabase(): Promise<void> {
-  const pool = createPool(loadConfig().DATABASE_URL);
+  const db = await new DataSource(
+    databaseOptions(loadConfig().DATABASE_URL),
+  ).initialize();
   try {
-    await pool.query('TRUNCATE bookings');
+    await runMigrations(db);
+    await db.query('TRUNCATE bookings');
     // Back-to-back bookings over five resources, one in ten cancelled.
-    await pool.query(
+    await db.query(
       `INSERT INTO bookings (id, resource_id, period, status, cancelled_at)
        SELECT 'seed-' || g,
               (ARRAY['PROJECTOR-1','R1','R2','ROOM-A','ROOM-B'])[g % 5 + 1],
@@ -33,9 +36,9 @@ async function seedDatabase(): Promise<void> {
          FROM generate_series(0, $1 - 1) AS g`,
       [seed],
     );
-    await pool.query('ANALYZE bookings');
+    await db.query('ANALYZE bookings');
   } finally {
-    await pool.end();
+    await db.destroy();
   }
 }
 
@@ -60,7 +63,7 @@ const scenarios: Scenario[] = [
   },
   {
     name: 'GET booking by id',
-    path: postgres ? '/bookings/seed-4242' : '/resources',
+    path: '/bookings/seed-4242',
   },
   {
     name: 'POST bookings, no contention',
@@ -121,13 +124,9 @@ function summarize(name: string, result: Result) {
   };
 }
 
-if (postgres) {
-  console.log(`Seeding ${seed} bookings...`);
-  await seedDatabase();
-}
-const servers = await startServers(1, {
-  DB_DRIVER: postgres ? 'postgres' : 'memory',
-});
+console.log(`Seeding ${seed} bookings...`);
+await seedDatabase();
+const servers = await startServers(1);
 const rows = [];
 try {
   for (const scenario of scenarios) {
@@ -138,6 +137,6 @@ try {
   await servers.stop();
 }
 console.log(
-  `\nDB_DRIVER=${postgres ? 'postgres' : 'memory'}, ${connections} connections, ${duration}s per scenario${postgres ? `, ${seed} seeded bookings` : ''}`,
+  `\n${connections} connections, ${duration}s per scenario, ${seed} seeded bookings`,
 );
 console.table(rows);

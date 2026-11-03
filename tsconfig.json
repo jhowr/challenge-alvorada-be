@@ -1,20 +1,17 @@
 {
   "compilerOptions": {
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
-    "resolvePackageJsonExports": true,
+    // Imports are written without extensions; `nest build` (SWC) adds them
+    // to the emitted ES modules, and tsx/Vitest resolve them in development.
+    "module": "esnext",
+    "moduleResolution": "bundler",
     "esModuleInterop": true,
     "isolatedModules": true,
-    "declaration": true,
-    "removeComments": true,
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
-    "allowSyntheticDefaultImports": true,
     "target": "ES2024",
     "sourceMap": true,
+    // tsc only type-checks; `nest build` (SWC) writes to outDir.
     "outDir": "./dist",
-    "rootDir": ".",
-    "incremental": true,
     "skipLibCheck": true,
     "strict": true,
     "strictPropertyInitialization": false,

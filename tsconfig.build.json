@@ -1,10 +1,8 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "rootDir": "./src",
-    // `nest build` deletes dist/ first; an incremental .tsbuildinfo left
-    // outside it makes tsc skip unchanged files and emit a partial build.
-    "incremental": false
+    // Emits dist/main.js rather than dist/src/main.js.
+    "rootDir": "./src"
   },
   "include": ["src"],
   "exclude": ["node_modules", "test", "dist", "**/*spec.ts"]

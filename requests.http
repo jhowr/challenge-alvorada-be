@@ -1,5 +1,5 @@
 # Manual exploration with the VS Code REST Client (or JetBrains HTTP client).
-# Start the API first: `pnpm start:dev` (memory) or `DB_DRIVER=postgres pnpm start:dev`.
+# Start the API first: `pnpm db:up && pnpm start:dev`.
 @api = http://localhost:3000
 
 ### Resources

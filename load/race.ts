@@ -7,13 +7,15 @@
  *   - no request ever gets a 5xx;
  *   - lists and conflicts come in ascending (byte) id order.
  *
- * DB_DRIVER=memory (default) runs one instance. DB_DRIVER=postgres runs
- * INSTANCES (default 3) processes sharing the database, which is where the
- * service pre-checks cannot help and only the schema keeps the rules.
+ * Runs INSTANCES (default 3) processes sharing the database in DATABASE_URL,
+ * which is where the service pre-checks cannot help and only the per-resource
+ * lock and the exclusion constraint keep the rules. The database is migrated
+ * first and its bookings are deleted before every scenario.
  */
-import { loadConfig } from '../src/shared/config.js';
-import { createPool } from '../src/shared/database/create-pool.js';
-import { startServers } from './servers.js';
+import { DataSource } from 'typeorm';
+import { databaseOptions, runMigrations } from '../src/config/database.config';
+import { loadConfig } from '../src/config/env.config';
+import { startServers } from './servers';
 
 interface Booking {
   id: string;
@@ -28,9 +30,11 @@ interface Reply {
   body: any;
 }
 
-const postgres = process.env.DB_DRIVER === 'postgres';
-const instances = postgres ? Number(process.env.INSTANCES ?? 3) : 1;
-const pool = postgres ? createPool(loadConfig().DATABASE_URL) : undefined;
+const instances = Number(process.env.INSTANCES ?? 3);
+const db = await new DataSource(
+  databaseOptions(loadConfig().DATABASE_URL),
+).initialize();
+await runMigrations(db);
 
 let urls: string[] = [];
 let next = 0;
@@ -67,7 +71,7 @@ function countBy(replies: Reply[]): Record<string, number> {
   return counts;
 }
 
-/** Invariants checked through the API (and through SQL in Postgres mode). */
+/** Invariants checked through the API and through SQL. */
 async function invariantViolations(
   acceptedIds: Iterable<string>,
 ): Promise<string[]> {
@@ -99,15 +103,13 @@ async function invariantViolations(
     }
   }
 
-  if (pool) {
-    const { rows } = await pool.query(
-      `SELECT a.id AS a, b.id AS b FROM bookings a
-         JOIN bookings b ON a.resource_id = b.resource_id AND a.id < b.id
-                        AND a.period && b.period
-        WHERE a.status = 'active' AND b.status = 'active'`,
-    );
-    for (const row of rows) violations.push(`SQL overlap: ${row.a} × ${row.b}`);
-  }
+  const rows: { a: string; b: string }[] = await db.query(
+    `SELECT a.id AS a, b.id AS b FROM bookings a
+       JOIN bookings b ON a.resource_id = b.resource_id AND a.id < b.id
+                      AND a.period && b.period
+      WHERE a.status = 'active' AND b.status = 'active'`,
+  );
+  for (const row of rows) violations.push(`SQL overlap: ${row.a} × ${row.b}`);
   return violations;
 }
 
@@ -127,10 +129,8 @@ async function scenario(
     violations: string[];
   }>,
 ): Promise<ScenarioResult> {
-  if (pool) await pool.query('TRUNCATE bookings');
-  const servers = await startServers(instances, {
-    DB_DRIVER: postgres ? 'postgres' : 'memory',
-  });
+  await db.query('TRUNCATE bookings');
+  const servers = await startServers(instances);
   urls = servers.urls;
   try {
     const started = performance.now();
@@ -324,10 +324,7 @@ const scenarios = [
         };
       },
     ),
-];
-
-if (pool) {
-  scenarios.push(() =>
+  () =>
     scenario(
       'connection kill: terminate every API connection under load, then recover',
       async () => {
@@ -342,7 +339,7 @@ if (pool) {
           }
         });
         await new Promise((resolve) => setTimeout(resolve, 500));
-        const { rows } = await pool.query<{ killed: number }>(
+        const rows: { killed: number }[] = await db.query(
           `SELECT count(pg_terminate_backend(pid))::int AS killed
              FROM pg_stat_activity
             WHERE datname = current_database() AND pid <> pg_backend_pid()`,
@@ -377,12 +374,9 @@ if (pool) {
         };
       },
     ),
-  );
-}
+];
 
-console.log(
-  `Race harness — DB_DRIVER=${postgres ? 'postgres' : 'memory'}, ${instances} instance(s), concurrency ${N}\n`,
-);
+console.log(`Race harness — ${instances} instance(s), concurrency ${N}\n`);
 let failed = 0;
 try {
   for (const run of scenarios) {
@@ -397,7 +391,7 @@ try {
       console.log(`  ✘ ${violation}`);
   }
 } finally {
-  await pool?.end();
+  await db.destroy();
 }
 console.log(
   failed === 0

@@ -1,15 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
-import {
-  RESOURCES_REPOSITORY,
-  type ResourcesRepository,
-} from '../repositories/resources.repository.js';
+import { Injectable } from '@nestjs/common';
+import { ResourcesRepository } from '../repositories/resources.repository';
 
 @Injectable()
 export class ResourcesService {
-  constructor(
-    @Inject(RESOURCES_REPOSITORY)
-    private readonly resources: ResourcesRepository,
-  ) {}
+  constructor(private readonly resources: ResourcesRepository) {}
 
   list(): Promise<string[]> {
     return this.resources.list();

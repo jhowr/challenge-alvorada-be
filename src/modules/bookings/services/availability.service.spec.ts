@@ -1,94 +1,83 @@
-import { InMemoryResourcesRepository } from '../../resources/repositories/in-memory-resources.repository.js';
-import { ResourcesService } from '../../resources/services/resources.service.js';
-import { InMemoryBookingsRepository } from '../repositories/in-memory-bookings.repository.js';
-import { AvailabilityService } from './availability.service.js';
-import { BookingsService } from './bookings.service.js';
+import { mockOf } from '../../../../test/helpers/mock-of';
+import type { ResourcesRepository } from '../../resources/repositories/resources.repository';
+import { ResourcesService } from '../../resources/services/resources.service';
+import type { Booking } from '../booking.types';
+import type { BookingsRepository } from '../repositories/bookings.repository';
+import { AvailabilityService } from './availability.service';
 
-async function setup() {
-  const repository = new InMemoryBookingsRepository();
-  const resources = new ResourcesService(
-    new InMemoryResourcesRepository(['R1', 'R2']),
+const active = (id: string, start: number, end: number): Booking => ({
+  id,
+  resourceId: 'R1',
+  start,
+  end,
+  status: 'active',
+});
+
+function setup() {
+  const bookings = mockOf<BookingsRepository>({
+    findById: vi.fn(),
+    list: vi.fn(),
+    findActiveConflicts: vi.fn().mockResolvedValue([]),
+    insert: vi.fn(),
+    cancelIfActive: vi.fn(),
+  });
+  const resources = mockOf<ResourcesRepository>({
+    list: vi.fn(),
+    exists: vi.fn().mockResolvedValue(true),
+  });
+  const service = new AvailabilityService(
+    bookings,
+    new ResourcesService(resources),
   );
-  const bookings = new BookingsService(repository, resources);
-  await bookings.create({ id: 'B', resourceId: 'R1', start: 20, end: 30 });
-  await bookings.create({ id: 'A', resourceId: 'R1', start: 10, end: 20 });
-  await bookings.create({ id: 'C', resourceId: 'R1', start: 40, end: 50 });
-  await bookings.cancel('C');
-  return {
-    availability: new AvailabilityService(repository, resources),
-    snapshot: () => repository.list({}),
-  };
+  return { service, bookings, resources };
 }
 
 describe('AvailabilityService', () => {
-  it('BR10 — lists active conflicts in ascending id order', async () => {
-    const { availability } = await setup();
+  it('BR10 — an overlapped period is unavailable and lists the conflicts', async () => {
+    const { service, bookings } = setup();
+    const conflicts = [active('A', 10, 20), active('B', 20, 30)];
+    bookings.findActiveConflicts.mockResolvedValue(conflicts);
 
-    const result = await availability.check({
+    await expect(
+      service.check({ resourceId: 'R1', start: 15, end: 25 }),
+    ).resolves.toEqual({
+      resourceId: 'R1',
+      start: 15,
+      end: 25,
+      available: false,
+      conflicts,
+    });
+    expect(bookings.findActiveConflicts).toHaveBeenCalledWith('R1', {
       resourceId: 'R1',
       start: 15,
       end: 25,
     });
-
-    expect(result.ok).toBe(true);
-    if (!result.ok) return;
-    expect(result.value.available).toBe(false);
-    expect(result.value.conflicts.map((b) => b.id)).toEqual(['A', 'B']);
   });
 
-  it('BR10 — a period adjacent to bookings is available', async () => {
-    const { availability } = await setup();
+  it('BR10 — a period without active conflicts is available', async () => {
+    const { service } = setup();
 
-    const result = await availability.check({
-      resourceId: 'R1',
-      start: 30,
-      end: 40,
-    });
-
-    expect(result).toMatchObject({
-      ok: true,
-      value: { available: true, conflicts: [] },
-    });
+    await expect(
+      service.check({ resourceId: 'R1', start: 30, end: 40 }),
+    ).resolves.toMatchObject({ available: true, conflicts: [] });
   });
 
-  it('BR4 — cancelled bookings and other resources do not conflict', async () => {
-    const { availability } = await setup();
+  it('BR10 — checking never writes', async () => {
+    const { service, bookings } = setup();
 
-    expect(
-      await availability.check({ resourceId: 'R1', start: 40, end: 50 }),
-    ).toMatchObject({ value: { available: true } });
-    expect(
-      await availability.check({ resourceId: 'R2', start: 10, end: 30 }),
-    ).toMatchObject({ value: { available: true } });
+    await service.check({ resourceId: 'R1', start: 0, end: 100 });
+
+    expect(bookings.insert).not.toHaveBeenCalled();
+    expect(bookings.cancelIfActive).not.toHaveBeenCalled();
   });
 
-  it('BR10 — checking does not change any data', async () => {
-    const { availability, snapshot } = await setup();
-    const before = await snapshot();
+  it('BR11 — an unknown resource is an error', async () => {
+    const { service, bookings, resources } = setup();
+    resources.exists.mockResolvedValue(false);
 
-    await availability.check({ resourceId: 'R1', start: 0, end: 100 });
-
-    expect(await snapshot()).toEqual(before);
-  });
-
-  it.each([
-    [
-      'an unknown resource',
-      { resourceId: 'R9', start: 0, end: 5 },
-      'resource_not_found',
-    ],
-    [
-      'an empty period',
-      { resourceId: 'R1', start: 5, end: 5 },
-      'validation_error',
-    ],
-    ['a missing boundary', { resourceId: 'R1', start: 5 }, 'validation_error'],
-  ])('BR11 — rejects %s', async (_label, query, code) => {
-    const { availability } = await setup();
-
-    expect(await availability.check(query)).toMatchObject({
-      ok: false,
-      error: { code },
-    });
+    await expect(
+      service.check({ resourceId: 'R9', start: 0, end: 5 }),
+    ).rejects.toMatchObject({ code: 'resource_not_found', resourceId: 'R9' });
+    expect(bookings.findActiveConflicts).not.toHaveBeenCalled();
   });
 });

@@ -4,13 +4,16 @@
  * Times are plain integers read as HHMM for readability (900 = 9:00); the
  * API does not validate them as clock times.
  *
- * By default it starts the compiled app (dist/main.js) on a free port with
- * the current DB_DRIVER and stops it at the end. Set DEMO_URL to run against
- * a server that is already running instead; it must start with no bookings.
+ * By default it migrates the database in DATABASE_URL, deletes its bookings,
+ * starts the compiled app (dist/main.js) on a free port and stops it at the
+ * end. Set DEMO_URL to run against a server that is already running instead;
+ * it must start with no bookings.
  */
-import { type ChildProcess, spawn } from 'node:child_process';
-import { createServer } from 'node:net';
 import { isDeepStrictEqual } from 'node:util';
+import { DataSource } from 'typeorm';
+import { databaseOptions, runMigrations } from '../src/config/database.config';
+import { loadConfig } from '../src/config/env.config';
+import { startServers } from '../load/servers';
 
 interface Step {
   title: string;
@@ -190,46 +193,26 @@ async function run(baseUrl: string): Promise<boolean> {
   return passed === steps.length;
 }
 
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const server = createServer();
-    server.once('error', reject);
-    server.listen(0, () => {
-      const { port } = server.address() as { port: number };
-      server.close(() => resolve(port));
-    });
-  });
-}
-
-async function startServer(): Promise<{ url: string; child: ChildProcess }> {
-  const port = await freePort();
-  const child = spawn(process.execPath, ['dist/main.js'], {
-    env: { ...process.env, PORT: String(port) },
-    stdio: ['ignore', 'ignore', 'inherit'],
-  });
-  const url = `http://localhost:${port}`;
-  for (let attempt = 0; attempt < 100; attempt++) {
-    if (child.exitCode !== null)
-      throw new Error('dist/main.js exited; run `pnpm build` first');
-    try {
-      await fetch(`${url}/resources`);
-      return { url, child };
-    } catch {
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
+/** The demo creates fixed ids, so it needs a database without bookings. */
+async function emptyDatabase(): Promise<void> {
+  const db = await new DataSource(
+    databaseOptions(loadConfig().DATABASE_URL),
+  ).initialize();
+  try {
+    await runMigrations(db);
+    await db.query('TRUNCATE bookings');
+  } finally {
+    await db.destroy();
   }
-  child.kill();
-  throw new Error('Server did not start in time');
 }
 
 const external = process.env.DEMO_URL;
-const server = external ? undefined : await startServer();
-const baseUrl = external ?? server!.url;
-console.log(
-  `Running the demo against ${baseUrl} (DB_DRIVER=${process.env.DB_DRIVER ?? 'memory'})`,
-);
+if (!external) await emptyDatabase();
+const server = external ? undefined : await startServers(1);
+const baseUrl = external ?? server!.urls[0]!;
+console.log(`Running the demo against ${baseUrl}`);
 try {
   process.exitCode = (await run(baseUrl)) ? 0 : 1;
 } finally {
-  server?.child.kill();
+  await server?.stop();
 }

@@ -1,4 +1,4 @@
-import type { BookingsRepository } from '../../src/modules/bookings/repositories/bookings.repository.js';
+import type { BookingsRepository } from '../../src/modules/bookings/repositories/bookings.repository';
 
 /**
  * Wraps a repository so that no insert reaches the database until `parties`
@@ -14,17 +14,13 @@ export function withInsertBarrier(
   let release!: () => void;
   const allArrived = new Promise<void>((resolve) => (release = resolve));
 
-  return {
-    findById: (id) => repository.findById(id),
-    list: (filter) => repository.list(filter),
-    findActiveConflicts: (resourceId, period) =>
-      repository.findActiveConflicts(resourceId, period),
-    cancelIfActive: (id) => repository.cancelIfActive(id),
-    insert: async (booking) => {
-      waiting += 1;
-      if (waiting === parties) release();
-      await allArrived;
-      return repository.insert(booking);
-    },
+  // Every other method is the real repository's.
+  const wrapped = Object.create(repository) as BookingsRepository;
+  wrapped.insert = async (booking) => {
+    waiting += 1;
+    if (waiting === parties) release();
+    await allArrived;
+    return repository.insert(booking);
   };
+  return wrapped;
 }

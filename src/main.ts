@@ -1,11 +1,9 @@
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module.js';
-import { configureApp } from './app.setup.js';
-import { loadConfig } from './shared/config.js';
+import { AppModule } from './app.module';
+import { loadConfig } from './config/env.config';
 
-async function bootstrap() {
-  const { PORT } = loadConfig();
-  const app = configureApp(await NestFactory.create(AppModule));
-  await app.listen(PORT);
-}
-await bootstrap();
+// Validated before Nest starts, so a bad environment fails with one message.
+const { PORT } = loadConfig();
+const app = await NestFactory.create(AppModule);
+app.enableShutdownHooks();
+await app.listen(PORT);

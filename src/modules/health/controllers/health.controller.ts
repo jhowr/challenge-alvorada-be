@@ -1,27 +1,27 @@
 import {
   Controller,
   Get,
-  Inject,
+  SerializeOptions,
   ServiceUnavailableException,
 } from '@nestjs/common';
-import type { Pool } from 'pg';
-import { PG_POOL } from '../../../shared/database/database.module.js';
+import { DataSource } from 'typeorm';
+import { HealthResponse } from '../dto/health.dto';
 
 @Controller('health')
 export class HealthController {
-  constructor(@Inject(PG_POOL) private readonly pool: Pool | null) {}
+  constructor(private readonly dataSource: DataSource) {}
 
   @Get()
-  async check(): Promise<{ status: 'ok'; driver: 'memory' | 'postgres' }> {
-    if (!this.pool) return { status: 'ok', driver: 'memory' };
+  @SerializeOptions({ type: HealthResponse })
+  async check(): Promise<HealthResponse> {
     try {
-      await this.pool.query('SELECT 1');
+      await this.dataSource.query('SELECT 1');
     } catch {
       throw new ServiceUnavailableException({
         code: 'database_unavailable',
         message: 'The database is not reachable',
       });
     }
-    return { status: 'ok', driver: 'postgres' };
+    return { status: 'ok' };
   }
 }

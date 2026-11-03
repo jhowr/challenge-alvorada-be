@@ -1,16 +1,15 @@
-import { PostgresResourcesRepository } from '../src/modules/resources/repositories/postgres-resources.repository.js';
-import { RESOURCE_SEED } from '../src/modules/resources/resources.seed.js';
-import { loadConfig } from '../src/shared/config.js';
-import { createPool } from '../src/shared/database/create-pool.js';
-import { migrate } from '../src/shared/database/migrate.js';
+import { DataSource } from 'typeorm';
+import { databaseOptions, runMigrations } from '../src/config/database.config';
+import { loadConfig } from '../src/config/env.config';
 
-const pool = createPool(loadConfig().DATABASE_URL);
+const dataSource = await new DataSource(
+  databaseOptions(loadConfig().DATABASE_URL),
+).initialize();
 try {
-  const applied = await migrate(pool);
-  await new PostgresResourcesRepository(pool).seed(RESOURCE_SEED);
+  const applied = await runMigrations(dataSource);
   console.log(
     applied.length > 0 ? `Applied: ${applied.join(', ')}` : 'Up to date',
   );
 } finally {
-  await pool.end();
+  await dataSource.destroy();
 }

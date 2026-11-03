@@ -1,17 +1,21 @@
-import { InMemoryResourcesRepository } from '../repositories/in-memory-resources.repository.js';
-import { ResourcesService } from './resources.service.js';
+import { mockOf } from '../../../../test/helpers/mock-of';
+import type { ResourcesRepository } from '../repositories/resources.repository';
+import { ResourcesService } from './resources.service';
 
 describe('ResourcesService', () => {
-  const service = new ResourcesService(
-    new InMemoryResourcesRepository(['R2', 'R10', 'R1']),
-  );
+  const repository = mockOf<ResourcesRepository>({
+    list: vi.fn().mockResolvedValue(['R1', 'R10', 'R2']),
+    exists: vi.fn(async (id: string) => id === 'R1'),
+  });
+  const service = new ResourcesService(repository);
 
-  it('lists resources in ascending id order', async () => {
+  it('lists the resources as the repository orders them', async () => {
     expect(await service.list()).toEqual(['R1', 'R10', 'R2']);
   });
 
-  it('tells whether a resource exists (case-sensitive)', async () => {
+  it('tells whether a resource exists', async () => {
     expect(await service.exists('R1')).toBe(true);
-    expect(await service.exists('r1')).toBe(false);
+    expect(await service.exists('R9')).toBe(false);
+    expect(repository.exists).toHaveBeenCalledWith('R9');
   });
 });

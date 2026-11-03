@@ -1,7 +1,22 @@
-export const RESOURCES_REPOSITORY = Symbol('RESOURCES_REPOSITORY');
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { ResourceEntity } from '../entities/resource.entity';
 
-export interface ResourcesRepository {
+@Injectable()
+export class ResourcesRepository {
+  constructor(
+    @InjectRepository(ResourceEntity)
+    private readonly resources: Repository<ResourceEntity>,
+  ) {}
+
   /** All resource ids in ascending id order. */
-  list(): Promise<string[]>;
-  exists(id: string): Promise<boolean>;
+  async list(): Promise<string[]> {
+    const rows = await this.resources.find({ order: { id: 'ASC' } });
+    return rows.map((row) => row.id);
+  }
+
+  exists(id: string): Promise<boolean> {
+    return this.resources.existsBy({ id });
+  }
 }
